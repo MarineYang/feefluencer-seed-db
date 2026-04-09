@@ -4,9 +4,11 @@ Apify API 클라이언트 래퍼
 - Profile Scraper
 - Post Scraper
 """
+from __future__ import annotations
+
 import asyncio
 import json
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from loguru import logger
@@ -85,7 +87,7 @@ class ApifyClient:
     # 공개 메서드
     # ----------------------------------------------------------------
 
-    async def scrape_hashtag(self, hashtag: str, limit: int | None = None) -> list[str]:
+    async def scrape_hashtag(self, hashtag: str, limit: Optional[int] = None) -> list[str]:
         """
         해시태그에서 게시물 작성자 username 목록을 반환한다.
         반환: ["username1", "username2", ...]
@@ -132,7 +134,7 @@ class ApifyClient:
         logger.info(f"Profile scrape 완료: {len(results)}개 결과")
         return results
 
-    async def scrape_posts(self, username: str, limit: int | None = None) -> list[dict]:
+    async def scrape_posts(self, username: str, limit: Optional[int] = None) -> list[dict]:
         """
         계정의 최근 게시물을 수집한다.
         반환: Apify 응답 raw 데이터 리스트
@@ -155,7 +157,7 @@ class ApifyClient:
 # Apify 응답 → 내부 모델 변환
 # ----------------------------------------------------------------
 
-def parse_profile(raw: dict) -> dict:
+def parse_profile(raw: dict) -> dict:  # noqa: C901
     """Apify 프로필 응답을 DB 저장용 dict로 변환한다."""
     followers = raw.get("followersCount") or raw.get("followers") or 0
     following = raw.get("followingCount") or raw.get("following") or 0

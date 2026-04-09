@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 APScheduler 기반 배치 스케줄러
 cron 표현식으로 Discovery / Enrichment / Refresh 배치를 자동 실행한다.

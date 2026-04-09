@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 import asyncpg
 from loguru import logger
 
 from config import settings
 
-_pool: asyncpg.Pool | None = None
+_pool: Optional[asyncpg.Pool] = None
 
 
 async def get_pool() -> asyncpg.Pool:

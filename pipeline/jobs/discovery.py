@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Discovery Job
 해시태그 기반으로 신규 인플루언서 계정을 발굴하고 DB에 적재한다.

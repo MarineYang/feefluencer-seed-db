@@ -1,0 +1,52 @@
+services:
+
+  # ── PostgreSQL ──────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: feefluencer-db
+    environment:
+      POSTGRES_DB: feefluencer
+      POSTGRES_USER: feefluencer
+      POSTGRES_PASSWORD: feefluencer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feefluencer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── FastAPI 파이프라인 API ────────────────────
+  api:
+    build:
+      context: ./pipeline
+    container_name: feefluencer-api
+    env_file:
+      - ./pipeline/.env
+    environment:
+      DATABASE_URL: postgresql://feefluencer:feefluencer@db:5432/feefluencer
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── React 대시보드 ───────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: feefluencer-dashboard
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

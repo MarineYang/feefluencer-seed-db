@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Refresh Job
 Hot/Warm/Cold 티어 기준으로 기존 계정의 프로필을 주기적으로 갱신한다.

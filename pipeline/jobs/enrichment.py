@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Enrichment Job
 큐에서 posts_refresh / deep_enrich 작업을 처리한다.

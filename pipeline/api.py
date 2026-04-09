@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 FastAPI 모니터링 API
 대시보드에서 실시간 현황을 조회하는 엔드포인트를 제공한다.

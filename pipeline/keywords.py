@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 도메인 특화 키워드 사전
 - treatment_tags 추출 (시술 키워드)
@@ -6,6 +7,8 @@
 - medical_risk 감지 (의료광고법 위반 소지)
 - clinic_brand 감지 (클리닉/브랜드명 패턴)
 """
+
+from typing import Optional
 
 # ============================================================
 # 시술 키워드 사전
