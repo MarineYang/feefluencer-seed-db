@@ -83,6 +83,27 @@ async def run_enrichment(batch_size: int | None = None) -> dict:
             # 게시물 upsert
             await _upsert_posts(posts_raw, influencer_id)
 
+            # 활동성 체크: 90일 이상 미활동 → stale
+            last_posted = analysis.get("last_posted_at")
+            if last_posted:
+                from datetime import datetime, timezone, timedelta
+                try:
+                    if isinstance(last_posted, str):
+                        last_dt = datetime.fromisoformat(last_posted.replace("Z", "+00:00"))
+                    else:
+                        last_dt = last_posted
+                    if datetime.now(timezone.utc) - last_dt > timedelta(days=90):
+                        await db.execute(
+                            "UPDATE influencers SET status='stale', updated_at=NOW() WHERE id=$1",
+                            influencer_id,
+                        )
+                        await _mark_job(job_id, "done")
+                        skipped += 1
+                        logger.debug(f"활동 없음(90일) → stale: @{handle}")
+                        continue
+                except Exception:
+                    pass
+
             # influencer 필드 갱신
             await _update_influencer_enrichment(influencer_id, analysis)
 
@@ -91,7 +112,7 @@ async def run_enrichment(batch_size: int | None = None) -> dict:
 
             await _mark_job(job_id, "done")
             success += 1
-            logger.debug(f"Enrichment 완료: @{handle}")
+            logger.info(f"Enrichment 완료: @{handle} (게시물 {len(posts_raw)}개)")
 
         except Exception as e:
             error_msg = str(e)

@@ -14,6 +14,7 @@ import {
 import {
   api,
   Distribution,
+  GoalStats,
   GrowthPoint,
   Hashtag,
   Influencer,
@@ -163,6 +164,7 @@ function jobBadge(jobType: string) {
 // 메인 대시보드
 // ─────────────────────────────────────────────
 export default function Dashboard() {
+  const [goal, setGoal] = useState<GoalStats | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [distribution, setDistribution] = useState<Distribution | null>(null);
   const [growth, setGrowth] = useState<GrowthPoint[]>([]);
@@ -183,7 +185,8 @@ export default function Dashboard() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [s, d, g, r, q, h, inf] = await Promise.all([
+      const [gl, s, d, g, r, q, h, inf] = await Promise.all([
+        api.getGoal(),
         api.getStats(),
         api.getDistribution(),
         api.getGrowth(growthDays),
@@ -192,6 +195,7 @@ export default function Dashboard() {
         api.getHashtags(),
         api.getInfluencers(infPage, tierFilter || undefined, domainFilter || undefined),
       ]);
+      setGoal(gl);
       setStats(s);
       setDistribution(d);
       setGrowth(g);
@@ -278,6 +282,72 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {/* ── 1차 목표 진행률 */}
+      {goal && (
+        <div className="bg-[#161b27] border border-indigo-500/30 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <span className="text-sm font-semibold text-white">1차 목표 — 의미있는 인플루언서 5,000명</span>
+              <span className="ml-3 text-xs text-slate-500">
+                활동 중 · Enrichment 완료 · match_score &gt; 0
+              </span>
+            </div>
+            <span className="text-2xl font-bold text-indigo-400">
+              {goal.meaningful.toLocaleString()} <span className="text-sm text-slate-500">/ {goal.goal.toLocaleString()}</span>
+            </span>
+          </div>
+
+          {/* 메인 프로그레스 바 */}
+          <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden mb-4">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 rounded-full transition-all duration-700"
+              style={{ width: `${Math.min(goal.progress_pct, 100)}%` }}
+            />
+          </div>
+
+          {/* 파이프라인 단계별 현황 */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
+            <div className="bg-slate-800/40 rounded-lg py-2.5">
+              <p className="text-[10px] text-slate-500 mb-0.5">전체 수집</p>
+              <p className="text-base font-bold text-slate-300">{fmt(goal.total_collected)}</p>
+            </div>
+            <div className="bg-slate-800/40 rounded-lg py-2.5">
+              <p className="text-[10px] text-slate-500 mb-0.5">Enrichment 완료</p>
+              <p className="text-base font-bold text-yellow-400">{fmt(goal.enriched)}</p>
+            </div>
+            <div className="bg-slate-800/40 rounded-lg py-2.5">
+              <p className="text-[10px] text-slate-500 mb-0.5">Enrichment 대기</p>
+              <p className="text-base font-bold text-blue-400">{fmt(goal.pending_enrichment)}</p>
+            </div>
+            <div className="bg-slate-800/40 rounded-lg py-2.5">
+              <p className="text-[10px] text-slate-500 mb-0.5">의미있는 계정</p>
+              <p className="text-base font-bold text-indigo-400">{fmt(goal.meaningful)}</p>
+            </div>
+            <div className="bg-slate-800/40 rounded-lg py-2.5">
+              <p className="text-[10px] text-slate-500 mb-0.5">제외 (업체/저품질)</p>
+              <p className="text-base font-bold text-slate-600">{fmt(goal.discarded)}</p>
+            </div>
+          </div>
+
+          {/* 도메인별 breakdown */}
+          <div className="flex gap-4 mt-3 pt-3 border-t border-slate-700/30">
+            <span className="text-[10px] text-slate-500 self-center">score &gt; 0.3</span>
+            <span className="text-xs text-indigo-300">
+              피부과 <strong>{fmt(goal.domain_breakdown.skin_clinic)}</strong>
+            </span>
+            <span className="text-xs text-emerald-300">
+              성형외과 <strong>{fmt(goal.domain_breakdown.plastic_surgery)}</strong>
+            </span>
+            <span className="text-xs text-yellow-300">
+              비만클리닉 <strong>{fmt(goal.domain_breakdown.obesity_clinic)}</strong>
+            </span>
+            <span className="ml-auto text-xs text-indigo-500 font-semibold">
+              {goal.progress_pct}% 달성
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── 핵심 지표 카드 */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

@@ -89,7 +89,19 @@ export interface InfluencerList {
   items: Influencer[];
 }
 
+export interface GoalStats {
+  goal: number;
+  meaningful: number;
+  progress_pct: number;
+  enriched: number;
+  pending_enrichment: number;
+  total_collected: number;
+  discarded: number;
+  domain_breakdown: { skin_clinic: number; plastic_surgery: number; obesity_clinic: number };
+}
+
 export const api = {
+  getGoal: () => get<GoalStats>("/stats/goal"),
   getStats: () => get<Stats>("/stats"),
   getDistribution: () => get<Distribution>("/stats/distribution"),
   getGrowth: (days = 30) => get<GrowthPoint[]>(`/stats/growth?days=${days}`),

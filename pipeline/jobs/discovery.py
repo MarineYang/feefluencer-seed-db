@@ -20,6 +20,8 @@ from keywords import (
     calculate_quality_flags,
     extract_region_tags,
     extract_treatment_tags,
+    is_business_account,
+    passes_triage,
 )
 
 
@@ -187,8 +189,6 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
     following = parsed.get("following") or 0
 
     # 파생 필드 계산
-    treatment_tags = extract_treatment_tags(bio)
-    region_tags = extract_region_tags(bio)
     follower_tier = calculate_follower_tier(followers)
     quality_flags = calculate_quality_flags(
         followers=followers,
@@ -197,7 +197,37 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
         posts_count=parsed.get("posts_count"),
         avg_reel_plays=parsed.get("avg_reel_plays"),
     )
-    status = "low_quality" if len(quality_flags) >= 2 else "active"
+
+    # Triage 판단
+    ok, reason = passes_triage(
+        followers=followers,
+        following=following,
+        posts_count=parsed.get("posts_count") or 0,
+        quality_flags=quality_flags,
+        bio=bio,
+        handle=handle,
+        full_name=parsed.get("full_name") or "",
+        is_business=parsed.get("is_business", False),
+    )
+    if not ok:
+        # 버리지 않고 분류만 해서 저장 (재평가 가능하도록)
+        discard_status = "business" if reason == "business" else "low_quality"
+        logger.debug(f"Triage 탈락 @{handle}: {reason}")
+        await db.execute(
+            """
+            INSERT INTO influencers (platform, handle, full_name, bio, followers, follower_tier,
+                                     status, last_scraped_at)
+            VALUES ('instagram', $1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (platform, handle) DO UPDATE
+              SET status = $6, updated_at = NOW()
+            """,
+            handle, parsed.get("full_name"), bio, followers, follower_tier, discard_status,
+        )
+        return False
+
+    treatment_tags = extract_treatment_tags(bio)
+    region_tags = extract_region_tags(bio)
+    status = "active"
 
     # upsert (instagram_user_id 우선, 없으면 handle fallback)
     row = await db.fetch_one(
@@ -279,12 +309,12 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
         influencer_id, source_value,
     )
 
-    # enrichment 큐 등록 (신규만)
+    # enrichment 큐 등록 (신규만, 최고 우선순위)
     if is_new:
         await db.execute(
             """
             INSERT INTO influencer_seed_queue (influencer_id, platform, handle, job_type, priority)
-            VALUES ($1, 'instagram', $2, 'posts_refresh', 5)
+            VALUES ($1, 'instagram', $2, 'posts_refresh', 1)
             ON CONFLICT DO NOTHING
             """,
             influencer_id, handle,

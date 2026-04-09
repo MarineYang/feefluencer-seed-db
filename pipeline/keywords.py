@@ -290,3 +290,92 @@ def calculate_quality_flags(
             flags.append("low_reel_reach")
 
     return flags
+
+
+# ============================================================
+# 업체 계정 감지
+# ============================================================
+
+# bio에 이 키워드가 있으면 업체로 분류
+_BUSINESS_BIO_KEYWORDS: list[str] = [
+    # 직함/운영
+    "원장", "대표", "점장", "원장님", "실장",
+    # 공간 유형
+    "에스테틱", "피부관리실", "피부관리샵", "샵", "스파",
+    "뷰티샵", "네일샵", "헤어샵",
+    # 예약/문의
+    "예약문의", "예약은", "상담문의", "카톡아이디", "카카오",
+    "문의는", "예약링크", "링크트리", "운영시간", "영업시간",
+    "오픈", "휴무",
+    # 주소/위치 영업 표현
+    "점 운영", "지점", "본점", "신규오픈",
+]
+
+# handle에 이 패턴이 있으면 업체로 분류
+_BUSINESS_HANDLE_KEYWORDS: list[str] = [
+    "aesthetic", "clinic", "skincare", "skin_care",
+    "beauty", "shop", "salon", "spa",
+    "에스테틱", "클리닉", "피부과", "성형외과",
+]
+
+
+def passes_triage(
+    followers: int,
+    following: int,
+    posts_count: int,
+    quality_flags: list,
+    bio: str,
+    handle: str,
+    full_name: str,
+    is_business: bool,
+) -> tuple:
+    """
+    Enrichment 대상 여부를 판단한다.
+    Returns: (passes: bool, reason: str)
+    """
+    if followers < 1_000:
+        return False, "followers_too_low"
+    if posts_count is not None and posts_count < 6:
+        return False, "too_few_posts"
+    if len(quality_flags) >= 2:
+        return False, "low_quality"
+    if is_business_account(bio=bio, handle=handle, full_name=full_name, is_business=is_business):
+        return False, "business"
+    return True, "ok"
+
+
+def is_business_account(
+    bio: str,
+    handle: str,
+    full_name: str,
+    is_business: bool,
+) -> bool:
+    """
+    업체/샵 계정 여부를 판단한다.
+    True이면 status='business'로 분류되어 검색에서 제외된다.
+    """
+    bio_lower = (bio or "").lower()
+    handle_lower = (handle or "").lower()
+    name_lower = (full_name or "").lower()
+
+    # Apify가 비즈니스 계정으로 표시한 경우
+    # (단독으로는 너무 광범위하므로 다른 조건과 조합)
+    bio_hit = sum(1 for kw in _BUSINESS_BIO_KEYWORDS if kw in bio_lower)
+    handle_hit = any(kw in handle_lower for kw in _BUSINESS_HANDLE_KEYWORDS)
+    name_hit = any(kw in name_lower for kw in _BUSINESS_BIO_KEYWORDS[:6])  # 직함/공간 유형만
+
+    # 판단 기준:
+    # - bio에 업체 키워드 2개 이상
+    # - handle에 업체 키워드 + bio에 업체 키워드 1개 이상
+    # - is_business=True + bio에 업체 키워드 1개 이상
+    # - full_name에 직함/공간 유형 포함
+    if bio_hit >= 2:
+        return True
+    if handle_hit and bio_hit >= 1:
+        return True
+    if is_business and bio_hit >= 1:
+        return True
+    if name_hit:
+        return True
+
+    return False

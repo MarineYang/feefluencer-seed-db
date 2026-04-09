@@ -33,16 +33,22 @@ class ApifyClient:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=4, max=30))
     async def _run_actor(self, actor_id: str, input_data: dict) -> list[dict]:
         """Actor를 실행하고 결과를 반환한다."""
+        # Apify API는 경로에 '~' 사용 (슬래시 불가)
+        actor_path = actor_id.replace("/", "~")
         async with httpx.AsyncClient(timeout=30) as client:
-            # Actor 실행
             run_res = await client.post(
-                f"{APIFY_BASE}/acts/{actor_id}/runs",
+                f"{APIFY_BASE}/acts/{actor_path}/runs",
                 headers=self.headers,
-                json={"input": input_data},
+                json=input_data,   # input을 직접 body로 전송
             )
+            if not run_res.is_success:
+                logger.error(
+                    f"Apify API 오류 [{run_res.status_code}] actor={actor_id}\n"
+                    f"응답: {run_res.text[:500]}"
+                )
             run_res.raise_for_status()
             run_id = run_res.json()["data"]["id"]
-            logger.debug(f"Apify run started: {actor_id} / run_id={run_id}")
+            logger.info(f"Apify run started: {actor_id} / run_id={run_id}")
 
         # 완료 대기
         return await self._wait_for_run(run_id)

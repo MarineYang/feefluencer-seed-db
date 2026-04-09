@@ -5,8 +5,11 @@ FastAPI 모니터링 API
 """
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 import database as db
 from config import settings
@@ -14,11 +17,72 @@ from jobs.discovery import run_discovery
 from jobs.enrichment import run_enrichment
 from jobs.refresh import run_refresh
 
+_scheduler: AsyncIOScheduler | None = None
+
+
+async def _job_discovery():
+    logger.info("=== [스케줄] Discovery 시작 ===")
+    try:
+        result = await run_discovery()
+        logger.info(f"=== [스케줄] Discovery 완료: {result} ===")
+    except Exception as e:
+        logger.error(f"=== [스케줄] Discovery 오류: {e} ===")
+
+
+async def _job_enrichment():
+    logger.info("=== [스케줄] Enrichment 시작 ===")
+    try:
+        result = await run_enrichment()
+        logger.info(f"=== [스케줄] Enrichment 완료: {result} ===")
+    except Exception as e:
+        logger.error(f"=== [스케줄] Enrichment 오류: {e} ===")
+
+
+async def _job_refresh_hot():
+    try:
+        await run_refresh("hot")
+    except Exception as e:
+        logger.error(f"=== [스케줄] Refresh(hot) 오류: {e} ===")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _scheduler
     await db.get_pool()
+
+    _scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
+
+    # Discovery: 5분마다 (해시태그 → 프로필 → Triage)
+    _scheduler.add_job(
+        _job_discovery,
+        CronTrigger.from_crontab("*/5 * * * *", timezone="Asia/Seoul"),
+        id="discovery",
+        max_instances=1,
+        misfire_grace_time=60,
+    )
+    # Enrichment: 2분마다 (큐 우선순위 1번 계정 즉시 처리)
+    _scheduler.add_job(
+        _job_enrichment,
+        CronTrigger.from_crontab("*/2 * * * *", timezone="Asia/Seoul"),
+        id="enrichment",
+        max_instances=1,
+        misfire_grace_time=60,
+    )
+    # Refresh(hot): 매일 오전 8시
+    _scheduler.add_job(
+        _job_refresh_hot,
+        CronTrigger.from_crontab(settings.refresh_cron, timezone="Asia/Seoul"),
+        id="refresh_hot",
+        max_instances=1,
+        misfire_grace_time=1800,
+    )
+
+    _scheduler.start()
+    logger.info("스케줄러 시작: Discovery 5분 / Enrichment 10분 / Refresh(hot) 매일")
+
     yield
+
+    _scheduler.shutdown()
     await db.close_pool()
 
 
@@ -78,7 +142,7 @@ async def get_distribution():
         """
         SELECT follower_tier, COUNT(*) as count
         FROM influencers
-        WHERE status NOT IN ('deleted', 'low_quality')
+        WHERE status NOT IN ('deleted', 'low_quality', 'business')
           AND follower_tier IS NOT NULL
         GROUP BY follower_tier
         ORDER BY count DESC
@@ -101,7 +165,7 @@ async def get_distribution():
           COUNT(*) FILTER (WHERE match_score_plastic_surgery >= 0.3)  AS plastic_surgery,
           COUNT(*) FILTER (WHERE match_score_obesity_clinic >= 0.3)   AS obesity_clinic
         FROM influencers
-        WHERE status NOT IN ('deleted')
+        WHERE status NOT IN ('deleted', 'business')
         """
     )
 
@@ -302,6 +366,97 @@ async def trigger_refresh(tier: str):
         return {"error": "tier must be hot | warm | cold"}
     result = await run_refresh(tier)
     return result
+
+
+@app.get("/api/stats/goal")
+async def get_goal():
+    """
+    1차 목표(5,000명) 진행률을 반환한다.
+    '의미있는 인플루언서' 기준:
+      - status = 'active'
+      - match_score_skin_clinic OR plastic_surgery OR obesity_clinic > 0
+      - last_posted_at > 90일 이내
+    """
+    GOAL = 5_000
+
+    meaningful = await db.fetch_one(
+        """
+        SELECT COUNT(*) FROM influencers
+        WHERE status = 'active'
+          AND last_posted_at >= NOW() - INTERVAL '90 days'
+          AND (
+            match_score_skin_clinic     > 0 OR
+            match_score_plastic_surgery > 0 OR
+            match_score_obesity_clinic  > 0
+          )
+        """
+    )
+    enriched = await db.fetch_one(
+        "SELECT COUNT(*) FROM influencers WHERE status = 'active' AND last_posted_at IS NOT NULL"
+    )
+    pending_enrichment = await db.fetch_one(
+        "SELECT COUNT(*) FROM influencer_seed_queue WHERE status = 'pending' AND job_type = 'posts_refresh'"
+    )
+    total_collected = await db.fetch_one(
+        "SELECT COUNT(*) FROM influencers"
+    )
+    discarded = await db.fetch_one(
+        "SELECT COUNT(*) FROM influencers WHERE status IN ('low_quality', 'business', 'stale')"
+    )
+
+    meaningful_count = meaningful[0]
+    progress_pct = round(meaningful_count / GOAL * 100, 1)
+
+    # 도메인별 breakdown
+    domain_breakdown = await db.fetch_one(
+        """
+        SELECT
+          COUNT(*) FILTER (WHERE match_score_skin_clinic > 0.3
+                             AND status = 'active'
+                             AND last_posted_at >= NOW() - INTERVAL '90 days') AS skin_clinic,
+          COUNT(*) FILTER (WHERE match_score_plastic_surgery > 0.3
+                             AND status = 'active'
+                             AND last_posted_at >= NOW() - INTERVAL '90 days') AS plastic_surgery,
+          COUNT(*) FILTER (WHERE match_score_obesity_clinic > 0.3
+                             AND status = 'active'
+                             AND last_posted_at >= NOW() - INTERVAL '90 days') AS obesity_clinic
+        FROM influencers
+        """
+    )
+
+    return {
+        "goal": GOAL,
+        "meaningful": meaningful_count,
+        "progress_pct": progress_pct,
+        "enriched": enriched[0],
+        "pending_enrichment": pending_enrichment[0],
+        "total_collected": total_collected[0],
+        "discarded": discarded[0],
+        "domain_breakdown": dict(domain_breakdown) if domain_breakdown else {},
+    }
+
+
+@app.post("/api/admin/reclassify-business")
+async def reclassify_business():
+    """기존 적재된 계정 중 업체 계정을 재분류한다."""
+    from keywords import is_business_account
+    rows = await db.fetch_all(
+        "SELECT id, handle, full_name, bio, is_business FROM influencers WHERE status = 'active'"
+    )
+    updated = 0
+    for r in rows:
+        if is_business_account(
+            bio=r["bio"] or "",
+            handle=r["handle"] or "",
+            full_name=r["full_name"] or "",
+            is_business=r["is_business"] or False,
+        ):
+            await db.execute(
+                "UPDATE influencers SET status = 'business', updated_at = NOW() WHERE id = $1",
+                r["id"],
+            )
+            updated += 1
+    return {"reclassified": updated}
 
 
 if __name__ == "__main__":
