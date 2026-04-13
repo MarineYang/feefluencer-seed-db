@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INFINITH — Pipeline Test Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+  .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 32px; }
+
+  /* ── Input Section ── */
+  .input-card { background: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+  .input-row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  .input-group { flex: 1; min-width: 200px; }
+  .input-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  input { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; outline: none; }
+  input:focus { border-color: #6366f1; }
+  .btn { padding: 10px 24px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .btn-primary { background: #6366f1; color: white; }
+  .btn-primary:hover { background: #4f46e5; }
+  .btn-primary:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+  .btn-secondary { background: #334155; color: #e2e8f0; }
+  .btn-secondary:hover { background: #475569; }
+
+  /* ── Progress ── */
+  .progress-section { background: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 24px; display: none; }
+  .progress-bar-container { background: #0f172a; border-radius: 8px; height: 8px; margin: 16px 0; overflow: hidden; }
+  .progress-bar { height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 8px; transition: width 0.5s ease; width: 0%; }
+  .progress-status { font-size: 14px; color: #94a3b8; }
+  .step-list { margin-top: 16px; }
+  .step-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; color: #64748b; }
+  .step-item.active { color: #6366f1; font-weight: 600; }
+  .step-item.done { color: #22c55e; }
+  .step-dot { width: 8px; height: 8px; border-radius: 50%; background: #334155; flex-shrink: 0; }
+  .step-item.active .step-dot { background: #6366f1; box-shadow: 0 0 8px #6366f180; }
+  .step-item.done .step-dot { background: #22c55e; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; background: transparent; color: #64748b; border: 1px solid transparent; }
+  .tab.active { background: #1e293b; color: #e2e8f0; border-color: #334155; }
+  .tab:hover:not(.active) { color: #94a3b8; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Cards ── */
+  .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+
+  /* ── Score ── */
+  .score-card { background: #0f172a; border-radius: 8px; padding: 16px; }
+  .score-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .score-channel { font-size: 14px; font-weight: 600; }
+  .score-value { font-size: 24px; font-weight: 700; }
+  .score-bar { height: 4px; background: #1e293b; border-radius: 4px; margin: 8px 0; }
+  .score-bar-fill { height: 100%; border-radius: 4px; }
+  .score-headline { font-size: 12px; color: #94a3b8; }
+  .status-good { color: #22c55e; }
+  .status-warning { color: #eab308; }
+  .status-critical { color: #ef4444; }
+  .status-unknown { color: #6366f1; }
+
+  /* ── Table ── */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th { text-align: left; padding: 8px 12px; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; font-size: 11px; text-transform: uppercase; }
+  .data-table td { padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+
+  /* ── JSON Viewer ── */
+  .json-viewer { background: #0f172a; border-radius: 8px; padding: 16px; max-height: 500px; overflow: auto; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+
+  /* ── Badge ── */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #22c55e20; color: #22c55e; }
+  .badge-yellow { background: #eab30820; color: #eab308; }
+  .badge-red { background: #ef444420; color: #ef4444; }
+  .badge-blue { background: #6366f120; color: #6366f1; }
+
+  /* ── Action Buttons ── */
+  .action-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+
+  /* ── Log ── */
+  .log { background: #0f172a; border-radius: 8px; padding: 16px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; line-height: 1.8; }
+  .log-entry { color: #94a3b8; }
+  .log-entry.info { color: #6366f1; }
+  .log-entry.success { color: #22c55e; }
+  .log-entry.error { color: #ef4444; }
+  .log-entry .time { color: #475569; margin-right: 8px; }
+
+  .overall-score { text-align: center; padding: 20px; }
+  .overall-score .big-score { font-size: 64px; font-weight: 800; background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .overall-score .score-label { font-size: 14px; color: #94a3b8; }
+
+  .section-title { font-size: 18px; font-weight: 700; margin: 24px 0 16px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>INFINITH Pipeline Test Dashboard</h1>
+  <p class="subtitle">병원 URL 입력 -> 7단계 파이프라인 실행 -> 결과 확인</p>
+
+  <!-- Input -->
+  <div class="input-card">
+    <div class="input-row">
+      <div class="input-group" style="flex:2">
+        <label>병원 웹사이트 URL</label>
+        <input type="url" id="urlInput" placeholder="https://viewclinic.com" value="https://viewclinic.com">
+      </div>
+      <div class="input-group">
+        <label>병원명 (선택)</label>
+        <input type="text" id="nameInput" placeholder="뷰성형외과" value="뷰성형외과">
+      </div>
+      <button class="btn btn-primary" id="btnScrape" onclick="startScrape()">전체 파이프라인 실행</button>
+    </div>
+    <div style="margin-top: 12px; font-size: 12px; color: #475569;">
+      API Base: <input type="text" id="apiBase" value="http://localhost:8000" style="width:240px; display:inline; font-size:12px; padding:4px 8px;">
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-section" id="progressSection">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span class="progress-status" id="progressStatus">준비 중...</span>
+      <span class="progress-status" id="progressPercent">0%</span>
+    </div>
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="step-list" id="stepList"></div>
+  </div>
+
+  <!-- Results -->
+  <div id="resultsSection" style="display:none;">
+    <!-- Overall Score -->
+    <div class="card">
+      <div class="overall-score">
+        <div class="big-score" id="overallScore">—</div>
+        <div class="score-label">종합 마케팅 점수</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-tab="overview" onclick="switchTab('overview')">개요</div>
+      <div class="tab" data-tab="channels" onclick="switchTab('channels')">채널 분석</div>
+      <div class="tab" data-tab="market" onclick="switchTab('market')">시장 분석</div>
+      <div class="tab" data-tab="ai-report" onclick="switchTab('ai-report')">AI 전략 리포트</div>
+      <div class="tab" data-tab="content" onclick="switchTab('content')">콘텐츠 생성</div>
+      <div class="tab" data-tab="raw" onclick="switchTab('raw')">원본 JSON</div>
+      <div class="tab" data-tab="log" onclick="switchTab('log')">실행 로그</div>
+    </div>
+
+    <!-- Tab: Overview -->
+    <div class="tab-panel active" id="panel-overview">
+      <div class="card-grid">
+        <div class="card" id="clinicCard"></div>
+        <div class="card" id="diagnosisCard"></div>
+      </div>
+      <div class="card" id="scoresCard"></div>
+    </div>
+
+    <!-- Tab: Channels -->
+    <div class="tab-panel" id="panel-channels">
+      <div class="card" id="discoveryCard"></div>
+      <div class="card-grid">
+        <div class="card" id="instagramCard"></div>
+        <div class="card" id="igContentCard"></div>
+        <div class="card" id="gmapsCard"></div>
+        <div class="card" id="youtubeCard"></div>
+        <div class="card" id="facebookCard"></div>
+        <div class="card" id="naverCard"></div>
+        <div class="card" id="otherChannelsCard"></div>
+        <div class="card" id="websiteCard"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Market Analysis -->
+    <div class="tab-panel" id="panel-market">
+      <div id="marketContent"></div>
+    </div>
+
+    <!-- Tab: AI Report -->
+    <div class="tab-panel" id="panel-ai-report">
+      <div id="aiReportContent"></div>
+    </div>
+
+    <!-- Tab: Content Generation -->
+    <div class="tab-panel" id="panel-content">
+      <div class="action-bar">
+        <button class="btn btn-secondary" onclick="generateContent('blog')">블로그 생성</button>
+        <button class="btn btn-secondary" onclick="generateContent('social')">SNS 캡션 생성</button>
+        <button class="btn btn-secondary" onclick="generateContent('ads')">광고 카피 생성</button>
+        <button class="btn btn-secondary" onclick="generateContent('calendar')">콘텐츠 캘린더</button>
+      </div>
+      <div id="contentResult"></div>
+    </div>
+
+    <!-- Tab: Raw JSON -->
+    <div class="tab-panel" id="panel-raw">
+      <div class="json-viewer" id="rawJson"></div>
+    </div>
+
+    <!-- Tab: Log -->
+    <div class="tab-panel" id="panel-log">
+      <div class="log" id="logContainer"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  '웹사이트 스캔 + 채널 디스커버리 (네이버 검색)',
+  'YouTube + 서브페이지 + 네이버 블로그',
+  'Instagram/Google Maps (Apify 4개 Actor) + Facebook',
+  '브랜드 일관성 평가',
+  '시장 분석 (Perplexity 4개 병렬)',
+  'AI 전략 리포트 합성 (Perplexity)',
+  '최종 리포트 조립',
+];
+
+let reportData = null;
+
+function log(msg, level = 'info') {
+  const el = document.getElementById('logContainer');
+  const time = new Date().toLocaleTimeString('ko-KR');
+  el.innerHTML += `<div class="log-entry ${level}"><span class="time">[${time}]</span>${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabId}`));
+}
+
+function updateProgress(step, total, message) {
+  const pct = Math.round((step / total) * 100);
+  document.getElementById('progressBar').style.width = `${pct}%`;
+  document.getElementById('progressPercent').textContent = `${pct}%`;
+  document.getElementById('progressStatus').textContent = message;
+
+  const stepList = document.getElementById('stepList');
+  stepList.innerHTML = STEPS.map((s, i) => {
+    const idx = i + 1;
+    const cls = idx < step ? 'done' : (idx === step ? 'active' : '');
+    const icon = idx < step ? '✓' : (idx === step ? '●' : '○');
+    return `<div class="step-item ${cls}"><span class="step-dot"></span>Step ${idx}: ${s}</div>`;
+  }).join('');
+}
+
+async function startScrape() {
+  const url = document.getElementById('urlInput').value.trim();
+  const clinicName = document.getElementById('nameInput').value.trim();
+  const apiBase = document.getElementById('apiBase').value.trim();
+
+  if (!url) { alert('URL을 입력하세요'); return; }
+
+  // Reset
+  const btn = document.getElementById('btnScrape');
+  btn.disabled = true; btn.textContent = '실행 중...';
+  document.getElementById('progressSection').style.display = 'block';
+  document.getElementById('resultsSection').style.display = 'none';
+  document.getElementById('logContainer').innerHTML = '';
+  updateProgress(0, 7, '파이프라인 시작 중...');
+  log(`파이프라인 시작: ${url} (${clinicName || 'auto'})`, 'info');
+
+  try {
+    // SSE 스트림 호출
+    const response = await fetch(`${apiBase}/api/scrape`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, clinic_name: clinicName || null }),
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          var eventType = line.substring(6).trim();
+        }
+        if (line.startsWith('data:')) {
+          const data = line.substring(5).trim();
+          if (!data) continue;
+          try {
+            const parsed = JSON.parse(data);
+
+            if (eventType === 'progress') {
+              updateProgress(parsed.step, parsed.total, parsed.message);
+              log(`Step ${parsed.step}/${parsed.total}: ${parsed.message}`);
+            } else if (eventType === 'error') {
+              log(`ERROR: ${parsed.message}`, 'error');
+            } else if (eventType === 'complete') {
+              reportData = parsed;
+              log('파이프라인 완료!', 'success');
+              renderReport(parsed);
+            }
+          } catch (e) { /* skip non-json */ }
+        }
+      }
+    }
+  } catch (err) {
+    log(`연결 실패: ${err.message}`, 'error');
+    log(`서버가 실행 중인지 확인하세요: uvicorn app.main:app --reload`, 'error');
+  }
+
+  btn.disabled = false; btn.textContent = '전체 파이프라인 실행';
+}
+
+function renderReport(report) {
+  document.getElementById('resultsSection').style.display = 'block';
+  document.getElementById('overallScore').textContent = report.overall_score || 0;
+
+  // Clinic Snapshot
+  const cs = report.clinic_snapshot || {};
+  document.getElementById('clinicCard').innerHTML = `
+    <h3>${cs.logo_url ? `<img src="${cs.logo_url}" style="width:32px;height:32px;border-radius:8px;">` : ''} ${cs.name || '—'}</h3>
+    <table class="data-table">
+      <tr><td style="color:#64748b">영문명</td><td>${cs.name_en || '—'}</td></tr>
+      <tr><td style="color:#64748b">도메인</td><td>${cs.domain || '—'}</td></tr>
+      <tr><td style="color:#64748b">전화</td><td>${cs.phone || '—'}</td></tr>
+      <tr><td style="color:#64748b">주소</td><td>${cs.location || '—'}</td></tr>
+      <tr><td style="color:#64748b">개원</td><td>${cs.established || '—'}${cs.years_in_business ? ` (${cs.years_in_business}년)` : ''}</td></tr>
+      <tr><td style="color:#64748b">의료진</td><td>${cs.staff_count || 0}명${cs.lead_doctor?.name ? ` (대표: ${cs.lead_doctor.name})` : ''}</td></tr>
+      <tr><td style="color:#64748b">Google 평점</td><td>${cs.overall_rating ? `${cs.overall_rating}/5 (${cs.google_reviews || 0}개 리뷰)` : '—'}</td></tr>
+      <tr><td style="color:#64748b">시술</td><td>${(cs.services || []).join(', ') || '—'}</td></tr>
+    </table>
+  `;
+
+  // Diagnosis
+  const diag = report.problem_diagnosis || [];
+  document.getElementById('diagnosisCard').innerHTML = `
+    <h3>문제 진단</h3>
+    ${diag.map(d => {
+      const cls = d.severity === 'critical' ? 'red' : (d.severity === 'warning' ? 'yellow' : 'green');
+      return `<div style="margin-bottom:8px"><span class="badge badge-${cls}">${d.severity}</span> <strong>${d.category}</strong><br><span style="font-size:12px;color:#94a3b8">${d.detail}</span></div>`;
+    }).join('')}
+  `;
+
+  // Channel Scores
+  const scores = report.channel_scores || [];
+  document.getElementById('scoresCard').innerHTML = `
+    <h3>채널별 점수</h3>
+    <div class="card-grid">
+      ${scores.map(s => {
+        const color = s.status === 'good' ? '#22c55e' : (s.status === 'warning' ? '#eab308' : (s.status === 'critical' ? '#ef4444' : '#6366f1'));
+        return `<div class="score-card">
+          <div class="score-header">
+            <span class="score-channel">${s.channel}</span>
+            <span class="score-value" style="color:${color}">${s.score}</span>
+          </div>
+          <div class="score-bar"><div class="score-bar-fill" style="width:${s.score}%;background:${color}"></div></div>
+          <div class="score-headline">${s.headline}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+
+  // YouTube
+  const yt = report.youtube_audit || {};
+  document.getElementById('youtubeCard').innerHTML = `
+    <h3>▶ YouTube</h3>
+    ${yt.channel_name ? `
+      <table class="data-table">
+        <tr><td style="color:#64748b">채널</td><td><strong>${yt.channel_name}</strong></td></tr>
+        <tr><td style="color:#64748b">핸들</td><td>${yt.handle || '—'}</td></tr>
+        <tr><td style="color:#64748b">구독자</td><td>${(yt.subscribers || 0).toLocaleString()}</td></tr>
+        <tr><td style="color:#64748b">영상</td><td>${yt.total_videos || 0}개</td></tr>
+        ${yt.description ? `<tr><td style="color:#64748b">설명</td><td style="font-size:11px">${yt.description.slice(0,150)}...</td></tr>` : ''}
+      </table>
+      ${yt.top_videos?.length ? `
+        <div style="margin-top:12px;font-size:12px;font-weight:600">인기 영상 TOP ${Math.min(5, yt.top_videos.length)}</div>
+        <table class="data-table"><thead><tr><th>제목</th><th>조회수</th><th>업로드</th></tr></thead><tbody>
+        ${yt.top_videos.slice(0,5).map(v => `<tr><td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.title}</td><td>${(v.views||0).toLocaleString()}</td><td style="font-size:11px">${v.uploaded_ago||'—'}</td></tr>`).join('')}
+        </tbody></table>
+      ` : ''}
+    ` : '<p style="color:#64748b">YouTube 채널 미발견</p>'}
+  `;
+
+  // Discovery Map
+  const raw = report.social_channels_raw || {};
+  const channelList = [
+    { name: 'YouTube', icon: '▶', key: 'youtube', urls: raw.youtube || [] },
+    { name: 'Instagram', icon: '◉', key: 'instagram', urls: raw.instagram || [] },
+    { name: 'Facebook', icon: 'f', key: 'facebook', urls: raw.facebook || [] },
+    { name: '카카오톡', icon: '💬', key: 'kakao', urls: raw.kakao || [] },
+    { name: '네이버', icon: 'N', key: 'naver', urls: raw.naver || [] },
+    { name: 'TikTok', icon: '♪', key: 'tiktok', urls: raw.tiktok || [] },
+    { name: 'Twitter/X', icon: '𝕏', key: 'twitter', urls: raw.twitter || [] },
+  ];
+  document.getElementById('discoveryCard').innerHTML = `
+    <h3>채널 발견 현황</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;">
+      ${channelList.map(ch => {
+        const found = ch.urls.length > 0;
+        const color = found ? '#22c55e' : '#334155';
+        const textColor = found ? '#e2e8f0' : '#475569';
+        return `<div style="background:${found ? '#22c55e15' : '#0f172a'};border:1px solid ${color};border-radius:8px;padding:10px 16px;min-width:120px;text-align:center">
+          <div style="font-size:20px;margin-bottom:4px">${ch.icon}</div>
+          <div style="font-size:12px;font-weight:600;color:${textColor}">${ch.name}</div>
+          <div style="font-size:11px;color:${found ? '#22c55e' : '#64748b'};margin-top:2px">${found ? ch.urls.length + '개 발견' : '미발견'}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:12px;font-size:11px;color:#475569">
+      발견 방법: 웹사이트 링크 추출 + 네이버 검색 스크래핑 + 개별 검색 폴백
+    </div>
+  `;
+
+  // Instagram
+  const ig = report.instagram_audit || {};
+  document.getElementById('instagramCard').innerHTML = `
+    <h3>◉ Instagram</h3>
+    ${(ig.accounts || []).length ? ig.accounts.map(a => `
+      <div style="display:flex;gap:12px;align-items:start;margin-bottom:12px">
+        ${a.profile_pic_url ? `<img src="${a.profile_pic_url}" style="width:48px;height:48px;border-radius:50%;flex-shrink:0">` : ''}
+        <div style="flex:1">
+          <div style="font-weight:600">${a.handle} ${a.is_verified ? '<span class="badge badge-blue">인증됨</span>' : ''} ${a.is_business ? '<span class="badge badge-green">비즈니스</span>' : ''}</div>
+          <div style="font-size:12px;color:#94a3b8;margin:4px 0">${a.full_name || ''}</div>
+        </div>
+      </div>
+      <table class="data-table">
+        <tr><td style="color:#64748b">팔로워</td><td><strong>${(a.followers || 0).toLocaleString()}</strong></td></tr>
+        <tr><td style="color:#64748b">게시물</td><td>${(a.posts || 0).toLocaleString()}</td></tr>
+        <tr><td style="color:#64748b">팔로잉</td><td>${(a.following || 0).toLocaleString()}</td></tr>
+        <tr><td style="color:#64748b">바이오</td><td style="font-size:12px">${a.bio || '—'}</td></tr>
+        <tr><td style="color:#64748b">카테고리</td><td>${a.category || '—'}</td></tr>
+        <tr><td style="color:#64748b">외부 링크</td><td style="font-size:12px">${a.external_url ? `<a href="${a.external_url}" target="_blank" style="color:#6366f1">${a.external_url}</a>` : '—'}</td></tr>
+      </table>
+    `).join('<hr style="border-color:#334155;margin:16px 0">') : '<p style="color:#64748b">Instagram 계정 미발견</p>'}
+  `;
+
+  // Instagram Content Analysis
+  const ca = ig.content_analysis || {};
+  document.getElementById('igContentCard').innerHTML = `
+    <h3>◉ Instagram 콘텐츠 분석</h3>
+    ${(ca.posts_analyzed || ca.reels_analyzed) ? `
+      <div class="card-grid" style="gap:8px;margin-bottom:16px">
+        <div class="score-card">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase">게시물 ${ca.posts_analyzed || 0}개 분석</div>
+          <div style="font-size:24px;font-weight:700;color:#e2e8f0;margin:4px 0">${(ca.avg_post_likes || 0).toLocaleString()}</div>
+          <div style="font-size:11px;color:#94a3b8">평균 좋아요</div>
+          <div style="font-size:13px;color:#94a3b8;margin-top:4px">평균 댓글 ${(ca.avg_post_comments || 0).toLocaleString()}</div>
+        </div>
+        <div class="score-card">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase">릴스 ${ca.reels_analyzed || 0}개 분석</div>
+          <div style="font-size:24px;font-weight:700;color:#8b5cf6;margin:4px 0">${(ca.avg_reel_plays || 0).toLocaleString()}</div>
+          <div style="font-size:11px;color:#94a3b8">평균 재생수</div>
+          <div style="font-size:13px;color:#94a3b8;margin-top:4px">평균 좋아요 ${(ca.avg_reel_likes || 0).toLocaleString()}</div>
+        </div>
+      </div>
+      ${ca.top_posts?.length ? `
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">인기 게시물 TOP 5</div>
+        <table class="data-table"><thead><tr><th>캡션</th><th>좋아요</th><th>댓글</th></tr></thead><tbody>
+        ${ca.top_posts.slice(0,5).map(p => `<tr><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.caption || '(없음)'}</td><td>${(p.likes||0).toLocaleString()}</td><td>${(p.comments||0).toLocaleString()}</td></tr>`).join('')}
+        </tbody></table>
+      ` : ''}
+      ${ca.top_reels?.length ? `
+        <div style="font-size:12px;font-weight:600;margin:16px 0 8px">인기 릴스 TOP 5</div>
+        <table class="data-table"><thead><tr><th>캡션</th><th>재생</th><th>좋아요</th></tr></thead><tbody>
+        ${ca.top_reels.slice(0,5).map(r => `<tr><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.caption || '(없음)'}</td><td>${(r.plays||0).toLocaleString()}</td><td>${(r.likes||0).toLocaleString()}</td></tr>`).join('')}
+        </tbody></table>
+      ` : ''}
+    ` : '<p style="color:#64748b">콘텐츠 분석 데이터 없음 (Apify 게시물/릴스 스크래퍼)</p>'}
+  `;
+
+  // Facebook
+  const fb = report.facebook_audit || {};
+  document.getElementById('facebookCard').innerHTML = `
+    <h3>f Facebook</h3>
+    ${(fb.pages || []).length ? fb.pages.map(p => `
+      ${p.logo ? `<img src="${p.logo}" style="width:40px;height:40px;border-radius:8px;margin-bottom:8px">` : ''}
+      <table class="data-table">
+        <tr><td style="color:#64748b">페이지</td><td><strong>${p.page_name}</strong></td></tr>
+        <tr><td style="color:#64748b">팔로워</td><td>${(p.followers || 0).toLocaleString()}</td></tr>
+        <tr><td style="color:#64748b">리뷰</td><td>${p.reviews || 0}</td></tr>
+        <tr><td style="color:#64748b">카테고리</td><td>${p.category || '—'}</td></tr>
+        <tr><td style="color:#64748b">최근 게시</td><td>${p.recent_post_age || '—'}</td></tr>
+      </table>
+    `).join('') : '<p style="color:#64748b">Facebook 페이지 미발견</p>'}
+  `;
+
+  // Google Maps
+  const gm = report.google_maps_audit || {};
+  document.getElementById('gmapsCard').innerHTML = `
+    <h3>📍 Google Maps</h3>
+    ${gm.place_name ? `
+      ${gm.image_url ? `<img src="${gm.image_url}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:12px">` : ''}
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div style="font-size:36px;font-weight:800;color:#eab308">${gm.rating || '—'}</div>
+        <div>
+          <div style="font-size:14px">${'★'.repeat(Math.round(gm.rating||0))}${'☆'.repeat(5-Math.round(gm.rating||0))}</div>
+          <div style="font-size:12px;color:#94a3b8">${(gm.total_reviews || 0).toLocaleString()}개 리뷰</div>
+        </div>
+      </div>
+      <table class="data-table">
+        <tr><td style="color:#64748b">장소명</td><td>${gm.place_name}</td></tr>
+        <tr><td style="color:#64748b">카테고리</td><td>${gm.category || '—'}</td></tr>
+        <tr><td style="color:#64748b">주소</td><td>${gm.address || '—'}</td></tr>
+        <tr><td style="color:#64748b">전화</td><td>${gm.phone || '—'}</td></tr>
+        <tr><td style="color:#64748b">웹사이트</td><td>${gm.website ? `<a href="${gm.website}" target="_blank" style="color:#6366f1">${gm.website}</a>` : '—'}</td></tr>
+      </table>
+      ${gm.opening_hours?.length ? `
+        <div style="margin-top:12px"><strong style="font-size:12px">영업시간:</strong></div>
+        ${(Array.isArray(gm.opening_hours) ? gm.opening_hours : []).map(h => {
+          const day = typeof h === 'string' ? h : (h.day || '');
+          const hours = typeof h === 'string' ? '' : (h.hours || '');
+          return `<div style="font-size:11px;color:#94a3b8;padding:1px 0">${day} ${hours}</div>`;
+        }).join('')}
+      ` : ''}
+      ${gm.reviews_distribution && Object.keys(gm.reviews_distribution).length ? (() => {
+        const starMap = {oneStar:1, twoStar:2, threeStar:3, fourStar:4, fiveStar:5};
+        const entries = Object.entries(gm.reviews_distribution)
+          .map(([k,v]) => [starMap[k] || parseInt(k) || 0, v])
+          .filter(([k]) => k > 0)
+          .sort((a,b) => b[0] - a[0]);
+        return `<div style="margin-top:12px"><strong style="font-size:12px">리뷰 분포:</strong></div>` +
+          entries.map(([star, count]) => {
+            const pct = gm.total_reviews ? Math.round(count/gm.total_reviews*100) : 0;
+            return `<div style="display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 0">
+              <span style="width:24px;text-align:right;color:#eab308">${star}★</span>
+              <div style="flex:1;height:6px;background:#1e293b;border-radius:3px"><div style="height:100%;width:${pct}%;background:#eab308;border-radius:3px"></div></div>
+              <span style="width:36px;text-align:right;color:#94a3b8">${count}</span>
+            </div>`;
+          }).join('');
+      })() : ''}
+    ` : '<p style="color:#64748b">Google Maps 데이터 없음</p>'}
+  `;
+
+  // Naver
+  const nv = report.naver_blog || {};
+  const naverUrls = raw.naver || [];
+  const naverPlaceUrl = naverUrls.find(u => u.includes('place.naver.com') || u.includes('map.naver.com'));
+  const naverBlogUrl = naverUrls.find(u => u.includes('blog.naver.com'));
+  document.getElementById('naverCard').innerHTML = `
+    <h3>N 네이버</h3>
+    <div style="margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">네이버 블로그</div>
+      ${nv.blog_name ? `
+        <table class="data-table">
+          <tr><td style="color:#64748b">블로그명</td><td>${nv.blog_name}</td></tr>
+          <tr><td style="color:#64748b">게시글</td><td>${nv.post_count || 0}개</td></tr>
+          <tr><td style="color:#64748b">방문자</td><td>${(nv.visitor_count || 0).toLocaleString()}</td></tr>
+          ${naverBlogUrl ? `<tr><td style="color:#64748b">URL</td><td><a href="${naverBlogUrl}" target="_blank" style="color:#6366f1;font-size:11px">${naverBlogUrl}</a></td></tr>` : ''}
+        </table>
+      ` : '<p style="color:#64748b;font-size:12px">블로그 미발견</p>'}
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">네이버 플레이스</div>
+      ${naverPlaceUrl ? `
+        <span class="badge badge-green">발견</span>
+        <a href="${naverPlaceUrl}" target="_blank" style="color:#6366f1;font-size:11px;margin-left:8px">${naverPlaceUrl}</a>
+      ` : '<p style="color:#64748b;font-size:12px">플레이스 미발견</p>'}
+    </div>
+  `;
+
+  // Other Channels
+  const oc = report.other_channels || [];
+  document.getElementById('otherChannelsCard').innerHTML = `
+    <h3>기타 채널</h3>
+    ${oc.length ? oc.map(c => {
+      const isActive = c.status === 'active';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #0f172a">
+        <span class="badge badge-${isActive ? 'green' : 'red'}">${isActive ? 'ON' : 'OFF'}</span>
+        <span style="font-size:13px;font-weight:600;min-width:80px">${c.name}</span>
+        <span style="font-size:12px;color:#94a3b8;flex:1">${c.details || ''}</span>
+        ${c.url ? `<a href="${c.url}" target="_blank" style="color:#6366f1;font-size:11px">링크</a>` : ''}
+      </div>`;
+    }).join('') : '<p style="color:#64748b">기타 채널 정보 없음</p>'}
+  `;
+
+  // Website
+  const wa = report.website_audit || {};
+  const pixels = (wa.tracking_pixels || []);
+  document.getElementById('websiteCard').innerHTML = `
+    <h3>Website Audit</h3>
+    <table class="data-table">
+      <tr><td style="color:#64748b">도메인</td><td>${wa.primary_domain || '—'}</td></tr>
+      <tr><td style="color:#64748b">SNS 연결</td><td>${wa.sns_links_on_site ? '<span class="badge badge-green">있음</span>' : '<span class="badge badge-red">없음</span>'}</td></tr>
+      <tr><td style="color:#64748b">CTA</td><td>${wa.main_cta || '—'}</td></tr>
+    </table>
+    <div style="margin-top:12px"><strong style="font-size:12px;">트래킹 픽셀:</strong></div>
+    ${pixels.map(p => `<div style="font-size:12px;padding:2px 0">${p.installed ? '<span class="badge badge-green">ON</span>' : '<span class="badge badge-red">OFF</span>'} ${p.name}</div>`).join('')}
+  `;
+
+  // Market Analysis
+  renderMarketAnalysis(report.market_analysis || {});
+
+  // AI Report
+  renderAiReport(report.ai_report || {});
+
+  // Raw JSON
+  document.getElementById('rawJson').textContent = JSON.stringify(report, null, 2);
+}
+
+function renderMarketAnalysis(ma) {
+  const el = document.getElementById('marketContent');
+  if (!ma || (!ma.competitors && !ma.keywords && !ma.market && !ma.target_audience)) {
+    el.innerHTML = '<div class="card"><p style="color:#64748b">시장 분석 데이터 없음 (Perplexity API 키 확인)</p></div>';
+    return;
+  }
+
+  let html = '';
+
+  // Competitors
+  const comp = ma.competitors?.data;
+  if (comp) {
+    const competitors = comp.competitors || comp;
+    html += `<div class="card"><h3>경쟁사 분석</h3>`;
+    if (Array.isArray(competitors)) {
+      html += `<table class="data-table"><thead><tr><th>병원</th><th>주력 시술</th><th>마케팅 채널</th><th>강점</th></tr></thead><tbody>`;
+      competitors.forEach(c => {
+        html += `<tr><td><strong>${c.name || ''}</strong></td><td>${(c.specialties || c.services || []).join(', ')}</td><td>${(c.marketing_channels || []).join(', ')}</td><td>${(c.strengths || []).join(', ')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    } else {
+      html += `<div class="json-viewer">${typeof comp === 'string' ? comp : JSON.stringify(comp, null, 2)}</div>`;
+    }
+    if (ma.competitors?.citations?.length) {
+      html += `<div style="margin-top:8px;font-size:11px;color:#475569"><strong>출처:</strong> ${ma.competitors.citations.map((c,i) => `<a href="${c}" target="_blank" style="color:#6366f1">[${i+1}]</a>`).join(' ')}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Keywords
+  const kw = ma.keywords?.data;
+  if (kw) {
+    html += `<div class="card"><h3>키워드 트렌드</h3>`;
+    const primary = kw.primary_keywords || [];
+    if (Array.isArray(primary) && primary.length) {
+      html += `<table class="data-table"><thead><tr><th>키워드</th><th>월간 검색량</th><th>경쟁</th><th>의도</th></tr></thead><tbody>`;
+      primary.forEach(k => {
+        const compCls = k.competition === 'high' ? 'red' : (k.competition === 'medium' ? 'yellow' : 'green');
+        html += `<tr><td><strong>${k.keyword}</strong></td><td>${k.monthly_searches || '—'}</td><td><span class="badge badge-${compCls}">${k.competition || '—'}</span></td><td>${k.intent || '—'}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+    if (kw.trending_keywords?.length) {
+      html += `<div style="margin-top:12px"><strong style="font-size:12px">급상승 키워드:</strong> ${kw.trending_keywords.map(k => `<span class="badge badge-blue">${k}</span>`).join(' ')}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Market
+  const mkt = ma.market?.data;
+  if (mkt) {
+    html += `<div class="card"><h3>시장 분석</h3>`;
+    if (typeof mkt === 'object' && !Array.isArray(mkt)) {
+      html += `<table class="data-table">`;
+      if (mkt.market_size) html += `<tr><td style="color:#64748b">시장 규모</td><td>${mkt.market_size}</td></tr>`;
+      if (mkt.growth_rate) html += `<tr><td style="color:#64748b">성장률</td><td>${mkt.growth_rate}</td></tr>`;
+      if (mkt.seasonal_patterns) html += `<tr><td style="color:#64748b">계절 패턴</td><td>${mkt.seasonal_patterns}</td></tr>`;
+      html += `</table>`;
+      if (mkt.trends?.length) {
+        html += `<div style="margin-top:12px"><strong style="font-size:13px">트렌드:</strong></div>`;
+        mkt.trends.forEach(t => {
+          const impCls = t.impact === 'high' ? 'red' : (t.impact === 'medium' ? 'yellow' : 'green');
+          html += `<div style="padding:6px 0;font-size:13px"><span class="badge badge-${impCls}">${t.impact}</span> <strong>${t.trend}</strong> — ${t.description}</div>`;
+        });
+      }
+    } else {
+      html += `<div class="json-viewer">${typeof mkt === 'string' ? mkt : JSON.stringify(mkt, null, 2)}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Target Audience
+  const ta = ma.target_audience?.data;
+  if (ta) {
+    html += `<div class="card"><h3>타겟 오디언스</h3>`;
+    if (typeof ta === 'object') {
+      const pri = ta.primary_audience || {};
+      html += `<div style="margin-bottom:12px"><strong>주요 타겟:</strong> ${pri.age_range || ''} / ${pri.gender || ''}</div>`;
+      if (pri.pain_points?.length) html += `<div style="font-size:13px;margin-bottom:8px"><strong>고민:</strong> ${pri.pain_points.join(', ')}</div>`;
+      if (pri.decision_factors?.length) html += `<div style="font-size:13px;margin-bottom:8px"><strong>결정 요인:</strong> ${pri.decision_factors.join(', ')}</div>`;
+      if (pri.preferred_channels?.length) html += `<div style="font-size:13px;margin-bottom:8px"><strong>선호 채널:</strong> ${pri.preferred_channels.join(', ')}</div>`;
+      if (ta.customer_journey?.length) {
+        html += `<div style="margin-top:12px"><strong>고객 여정:</strong></div>`;
+        ta.customer_journey.forEach(j => {
+          html += `<div style="font-size:12px;padding:4px 0"><span class="badge badge-blue">${j.stage}</span> ${j.description} (접점: ${(j.key_touchpoints || []).join(', ')})</div>`;
+        });
+      }
+    } else {
+      html += `<div class="json-viewer">${typeof ta === 'string' ? ta : JSON.stringify(ta, null, 2)}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  el.innerHTML = html || '<div class="card"><p style="color:#64748b">데이터 없음</p></div>';
+}
+
+function renderAiReport(ai) {
+  const el = document.getElementById('aiReportContent');
+  if (!ai || (typeof ai === 'object' && Object.keys(ai).length === 0)) {
+    el.innerHTML = '<div class="card"><p style="color:#64748b">AI 리포트 데이터 없음</p></div>';
+    return;
+  }
+
+  let html = '';
+
+  // Executive Summary
+  if (ai.executive_summary) {
+    html += `<div class="card"><h3>경영진 요약</h3><p style="font-size:14px;line-height:1.8">${ai.executive_summary}</p></div>`;
+  }
+
+  // SWOT
+  if (ai.swot) {
+    const s = ai.swot;
+    html += `<div class="card"><h3>SWOT 분석</h3><div class="card-grid">
+      <div class="score-card"><strong style="color:#22c55e">Strengths</strong><ul style="font-size:13px;padding-left:16px;margin-top:8px">${(s.strengths||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+      <div class="score-card"><strong style="color:#eab308">Weaknesses</strong><ul style="font-size:13px;padding-left:16px;margin-top:8px">${(s.weaknesses||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+      <div class="score-card"><strong style="color:#6366f1">Opportunities</strong><ul style="font-size:13px;padding-left:16px;margin-top:8px">${(s.opportunities||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+      <div class="score-card"><strong style="color:#ef4444">Threats</strong><ul style="font-size:13px;padding-left:16px;margin-top:8px">${(s.threats||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+    </div></div>`;
+  }
+
+  // Recommendations
+  if (ai.recommendations?.length) {
+    html += `<div class="card"><h3>실행 추천</h3><table class="data-table"><thead><tr><th>#</th><th>카테고리</th><th>제목</th><th>설명</th><th>기대효과</th><th>일정</th></tr></thead><tbody>`;
+    ai.recommendations.forEach(r => {
+      html += `<tr><td><span class="badge badge-blue">P${r.priority}</span></td><td>${r.category}</td><td><strong>${r.title}</strong></td><td style="font-size:12px;max-width:300px">${r.description}</td><td style="font-size:12px">${r.expected_impact || '—'}</td><td style="font-size:12px">${r.timeline || '—'}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // KPI
+  if (ai.kpi_targets?.length) {
+    html += `<div class="card"><h3>KPI 목표</h3><table class="data-table"><thead><tr><th>지표</th><th>현재</th><th>3개월 목표</th><th>6개월 목표</th></tr></thead><tbody>`;
+    ai.kpi_targets.forEach(k => {
+      html += `<tr><td><strong>${k.metric}</strong></td><td>${k.current || '—'}</td><td>${k.target_3m || '—'}</td><td>${k.target_6m || '—'}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // Content Strategy
+  if (ai.content_strategy) {
+    const cs = ai.content_strategy;
+    html += `<div class="card"><h3>콘텐츠 전략</h3>`;
+    if (cs.social_media_plan) html += `<p style="font-size:13px;margin-bottom:8px"><strong>SNS 전략:</strong> ${cs.social_media_plan}</p>`;
+    if (cs.blog_topics?.length) html += `<div style="font-size:13px;margin-bottom:8px"><strong>블로그 주제:</strong> ${cs.blog_topics.map(t => `<span class="badge badge-blue">${t}</span>`).join(' ')}</div>`;
+    if (cs.video_ideas?.length) html += `<div style="font-size:13px"><strong>영상 아이디어:</strong> ${cs.video_ideas.map(v => `<span class="badge badge-blue">${v}</span>`).join(' ')}</div>`;
+    html += `</div>`;
+  }
+
+  // Fallback
+  if (!html) {
+    html = `<div class="card"><div class="json-viewer">${typeof ai === 'string' ? ai : JSON.stringify(ai, null, 2)}</div></div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+async function generateContent(type) {
+  const apiBase = document.getElementById('apiBase').value.trim();
+  const clinicName = document.getElementById('nameInput').value.trim() || reportData?.clinic_snapshot?.name || '병원';
+  const services = reportData?.clinic_snapshot?.services || [];
+  const el = document.getElementById('contentResult');
+
+  el.innerHTML = '<div class="card"><p style="color:#6366f1">Gemini로 생성 중...</p></div>';
+  log(`콘텐츠 생성 요청: ${type}`, 'info');
+
+  const endpoints = {
+    blog: { url: '/api/analysis/content/blog', body: { clinic_name: clinicName, services, keywords: [], count: 5 } },
+    social: { url: '/api/analysis/content/social', body: { clinic_name: clinicName, services, platform: 'instagram', count: 10 } },
+    ads: { url: '/api/analysis/content/ads', body: { clinic_name: clinicName, services } },
+    calendar: { url: '/api/analysis/content/calendar', body: { clinic_name: clinicName, services, weeks: 4 } },
+  };
+
+  try {
+    const { url, body } = endpoints[type];
+    const resp = await fetch(`${apiBase}${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const result = await resp.json();
+    log(`콘텐츠 생성 완료: ${type}`, 'success');
+    el.innerHTML = `<div class="card"><h3>${type.toUpperCase()} 결과</h3><div class="json-viewer">${JSON.stringify(result?.data?.data || result, null, 2)}</div></div>`;
+  } catch (err) {
+    log(`콘텐츠 생성 실패: ${err.message}`, 'error');
+    el.innerHTML = `<div class="card"><p style="color:#ef4444">실패: ${err.message}</p></div>`;
+  }
+}
+</script>
+</body>
+</html>
