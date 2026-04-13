@@ -11,3 +11,4 @@ pydantic==2.7.1
 pydantic-settings==2.2.1
 tenacity==8.3.0
 loguru==0.7.2
+instaloader==4.13.1

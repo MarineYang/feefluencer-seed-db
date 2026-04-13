@@ -6,8 +6,12 @@ from __future__ import annotations
 - sponsorship 감지 (협찬 표시)
 - medical_risk 감지 (의료광고법 위반 소지)
 - clinic_brand 감지 (클리닉/브랜드명 패턴)
+- contact_info 추출 (이메일/카카오/전화/링크트리)
+- sponsorship_intent 감지 (협찬 의향 신호)
+- content_consistency 계산 (컨텐츠 일관성 점수)
 """
 
+import re
 from typing import Optional
 
 # ============================================================
@@ -117,6 +121,42 @@ MEDICAL_RISK_KEYWORDS: list[str] = [
 
 
 # ============================================================
+# 협찬 의향 신호 키워드 (바이오 문구 감지용)
+# ============================================================
+SPONSORSHIP_INTENT_KEYWORDS: dict[str, list[str]] = {
+    # DM으로 협찬 문의를 명시한 경우 (가장 강력한 신호)
+    "explicit_dm": [
+        "협찬문의dm", "협찬 문의 dm", "협찬문의는dm", "협찬문의 dm",
+        "광고문의dm", "광고 문의 dm", "제안은dm", "제안 dm",
+        "collab dm", "collaboration dm", "비즈니스dm",
+        "business dm", "광고dm", "협업dm",
+    ],
+    # 이메일로 협찬 문의를 명시한 경우
+    "explicit_email": [
+        "비즈니스문의", "business inquiry", "광고문의",
+        "협찬문의", "제안문의", "collab inquiry",
+        "협업문의",
+    ],
+    # 협찬 경험/의향을 바이오에 표시한 경우
+    "has_experience": [
+        "광고계정", "협찬계정", "체험단진행중",
+        "서포터즈활동중", "브랜드앰배서더",
+        "brand ambassador", "협찬가능", "광고가능", "홍보가능",
+    ],
+}
+
+# ============================================================
+# 연락처 추출 정규식 패턴
+# ============================================================
+CONTACT_PATTERNS: dict[str, str] = {
+    "email":    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
+    "kakao":    r"(?:카카오|카톡|kakao|KakaoTalk)[:\s]*([a-zA-Z0-9_\-\.가-힣]{2,20})",
+    "phone":    r"0[1789][0-9]\s*[-.]?\s*[0-9]{3,4}\s*[-.]?\s*[0-9]{4}",
+    "linktree": r"linktr\.ee/([a-zA-Z0-9_\-\.]+)",
+}
+
+
+# ============================================================
 # 클리닉 브랜드 감지 패턴 (일반적인 패턴)
 # ============================================================
 CLINIC_BRAND_PATTERNS: list[str] = [
@@ -176,6 +216,65 @@ def has_medical_risk(text: str) -> bool:
     return any(kw.lower() in text_lower for kw in MEDICAL_RISK_KEYWORDS)
 
 
+def extract_contact_info(bio: str, external_url: str | None = None) -> dict:
+    """
+    바이오와 외부 URL에서 연락처 정보를 추출한다.
+    Returns: {"email": str|None, "kakao": str|None, "phone": str|None,
+              "linktree": str|None, "has_contact": bool}
+    """
+    text = (bio or "") + " " + (external_url or "")
+    result: dict = {"email": None, "kakao": None, "phone": None, "linktree": None}
+
+    for field, pattern in CONTACT_PATTERNS.items():
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            # kakao/linktree는 캡처 그룹(group 1), 나머지는 전체 매치
+            result[field] = m.group(1) if field in ("kakao", "linktree") else m.group(0)
+
+    result["has_contact"] = any(v for k, v in result.items() if k != "has_contact" and v)
+    return result
+
+
+def detect_sponsorship_intent(bio: str) -> tuple[str, str | None]:
+    """
+    바이오에서 협찬 의향 신호를 감지한다.
+    Returns: (signal_type, matched_phrase)
+    signal_type: 'explicit_dm' | 'explicit_email' | 'has_experience' | 'none'
+    """
+    if not bio:
+        return "none", None
+    bio_normalized = bio.lower().replace(" ", "")
+
+    for signal_type in ("explicit_dm", "explicit_email", "has_experience"):
+        for kw in SPONSORSHIP_INTENT_KEYWORDS[signal_type]:
+            kw_normalized = kw.lower().replace(" ", "")
+            if kw_normalized in bio_normalized:
+                return signal_type, kw
+    return "none", None
+
+
+def calculate_content_consistency(post_treatment_flags: list[bool]) -> float:
+    """
+    게시물별 시술 관련 여부 플래그 리스트를 받아 일관성 점수를 반환한다.
+    단순 비율(70%) + 최대 연속 스트릭 보너스(30%) 합산.
+    Returns: 0.0 ~ 1.0
+    """
+    if not post_treatment_flags:
+        return 0.0
+    ratio = sum(post_treatment_flags) / len(post_treatment_flags)
+
+    max_streak = current_streak = 0
+    for flag in post_treatment_flags:
+        if flag:
+            current_streak += 1
+            max_streak = max(max_streak, current_streak)
+        else:
+            current_streak = 0
+    streak_bonus = min(max_streak / len(post_treatment_flags), 0.3)
+
+    return round(min(ratio * 0.7 + streak_bonus, 1.0), 3)
+
+
 def extract_clinic_brands(text: str) -> list[str]:
     """텍스트에서 클리닉 브랜드 언급을 감지한다."""
     if not text:
@@ -222,17 +321,36 @@ def calculate_match_score(
     has_risk: bool,
     quality_flags: list[str],
     anomaly_flag: bool,
-) -> float:
-    """도메인별 협찬 매칭 점수를 계산한다 (0.0 ~ 1.0)."""
+    # B2B 신규 지표
+    has_contact_info: bool = False,
+    sponsorship_intent_signal: str = "none",
+    content_consistency_score: float = 0.0,
+    is_recently_active: bool = False,
+    recent_engagement_rate: float | None = None,
+) -> tuple[float, dict]:
+    """
+    도메인별 협찬 매칭 점수를 계산한다 (0.0 ~ 1.0).
+    Returns: (score, breakdown_dict)
+    """
     score = 0.0
+    breakdown: dict = {}
     domain_kws = TREATMENT_KEYWORDS.get(domain, [])
 
-    # 시술 태그 매칭 (최대 0.35)
+    # 시술 태그 매칭 (최대 0.30)
     matched = sum(1 for tag in treatment_tags if tag in domain_kws)
-    score += min(matched * 0.07, 0.35)
+    tag_score = min(matched * 0.06, 0.30)
+    score += tag_score
+    breakdown["treatment_tag_score"] = tag_score
 
-    # 시술 콘텐츠 비율 (최대 0.20)
-    score += treatment_content_ratio * 0.20
+    # 컨텐츠 일관성 점수 (최대 0.20)
+    # content_consistency_score가 있으면 우선 사용, 없으면 ratio 구간화
+    if content_consistency_score > 0:
+        content_score = content_consistency_score * 0.20
+    else:
+        # 20% 이하는 0점, 그 이상부터 선형 비례
+        content_score = max(0.0, (treatment_content_ratio - 0.20) / 0.80) * 0.20
+    score += content_score
+    breakdown["content_score"] = round(content_score, 4)
 
     # 팔로워 티어 가중치 (최대 0.20)
     tier_scores = {
@@ -240,29 +358,63 @@ def calculate_match_score(
         "plastic_surgery":  {"nano": 0.10, "micro": 0.20, "mid": 0.18, "macro": 0.10},
         "obesity_clinic":   {"nano": 0.20, "micro": 0.18, "mid": 0.12, "macro": 0.06},
     }
+    tier_score = 0.0
     if follower_tier and domain in tier_scores:
-        score += tier_scores[domain].get(follower_tier, 0.0)
+        tier_score = tier_scores[domain].get(follower_tier, 0.0)
+    score += tier_score
+    breakdown["tier_score"] = tier_score
 
     # 지역 태그 존재 여부 (최대 0.10)
-    if region_tags:
-        score += 0.10
+    region_score = 0.10 if region_tags else 0.0
+    score += region_score
+    breakdown["region_score"] = region_score
+
+    # [신규] 연락처 존재 보너스 (최대 0.08) — B2B에서 연락 가능 여부 핵심
+    contact_score = 0.08 if has_contact_info else 0.0
+    score += contact_score
+    breakdown["contact_score"] = contact_score
+
+    # [신규] 협찬 의향 신호 보너스 (최대 0.07)
+    intent_score_map = {"explicit_dm": 0.07, "explicit_email": 0.05, "has_experience": 0.03, "none": 0.0}
+    intent_score = intent_score_map.get(sponsorship_intent_signal, 0.0)
+    score += intent_score
+    breakdown["intent_score"] = intent_score
+
+    # [신규] 최근 활동 보너스 (최대 0.05) — 30일 내 활동 없으면 협찬 의미 없음
+    active_score = 0.05 if is_recently_active else 0.0
+    score += active_score
+    breakdown["active_score"] = active_score
 
     # 협찬 과다 감점 (sponsorship_ratio > 0.5이면 감점)
     if sponsorship_ratio > 0.5:
-        score -= (sponsorship_ratio - 0.5) * 0.20
+        penalty = round((sponsorship_ratio - 0.5) * 0.20, 4)
+        score -= penalty
+        breakdown["sponsorship_penalty"] = -penalty
 
     # 의료광고법 리스크 감점
     if has_risk:
         score -= 0.10
+        breakdown["risk_penalty"] = -0.10
 
     # quality_flags 감점
-    score -= len(quality_flags) * 0.05
+    if quality_flags:
+        flag_penalty = len(quality_flags) * 0.05
+        score -= flag_penalty
+        breakdown["flag_penalty"] = -flag_penalty
 
     # anomaly 감점
     if anomaly_flag:
         score -= 0.10
+        breakdown["anomaly_penalty"] = -0.10
 
-    return round(max(0.0, min(1.0, score)), 3)
+    # [신규] 최근 engagement 매우 낮으면 추가 감점
+    if recent_engagement_rate is not None and recent_engagement_rate < 0.01:
+        score -= 0.05
+        breakdown["low_engagement_penalty"] = -0.05
+
+    final_score = round(max(0.0, min(1.0, score)), 3)
+    breakdown["total"] = final_score
+    return final_score, breakdown
 
 
 def calculate_quality_flags(
@@ -328,6 +480,7 @@ def passes_triage(
     handle: str,
     full_name: str,
     is_business: bool,
+    engagement_rate: float | None = None,
 ) -> tuple:
     """
     Enrichment 대상 여부를 판단한다.
@@ -335,6 +488,9 @@ def passes_triage(
     """
     if followers < 1_000:
         return False, "followers_too_low"
+    # nano(1k~3k) 계정은 engagement_rate 2% 미만이면 제외 (유령 계정 방지)
+    if followers < 3_000 and engagement_rate is not None and engagement_rate < 0.02:
+        return False, "nano_low_engagement"
     if posts_count is not None and posts_count < 6:
         return False, "too_few_posts"
     if len(quality_flags) >= 2:
@@ -379,3 +535,100 @@ def is_business_account(
         return True
 
     return False
+
+
+# ============================================================
+# 해시태그 자동 발굴 (게시물 → seed_hashtag_pool 자동 확장)
+# ============================================================
+
+# 너무 일반적이라 수집 가치 없는 해시태그 제외 목록
+_GENERIC_HASHTAG_BLOCKLIST: set[str] = {
+    "일상", "데일리", "일상스타그램", "데일리룩", "오늘의일상",
+    "맛집", "맛스타그램", "카페", "카페스타그램", "음식",
+    "여행", "여행스타그램", "여행사진",
+    "패션", "ootd", "outfit",
+    "selfie", "셀카", "셀피", "얼스타그램",
+    "선팔", "맞팔", "팔로우", "좋아요", "like4like", "follow",
+    "photo", "photography", "instagood", "instagram",
+    "beautiful", "cute", "love", "happy", "good",
+    "korea", "korean", "seoul", "서울", "한국",
+}
+
+# 해시태그에서 관련성 판단할 패턴
+_HASHTAG_RELEVANCE_PATTERNS: dict[str, list[str]] = {
+    "skin_clinic": [
+        "피부", "레이저", "리프팅", "보톡스", "필러", "시술", "스킨",
+        "미백", "기미", "주름", "모공", "탄력", "재생", "관리",
+        "울쎄라", "써마지", "슈링크", "인모드", "피코", "이피엘",
+    ],
+    "plastic_surgery": [
+        "성형", "쌍꺼풀", "코수술", "지방흡입", "눈성형", "코성형",
+        "양악", "광대", "사각턱", "윤곽", "가슴",
+    ],
+    "obesity_clinic": [
+        "다이어트", "비만", "체중", "삭센다", "위고비", "오젬픽",
+        "살빼", "감량", "지방분해", "다이어트주사",
+    ],
+}
+
+_HASHTAG_RE = re.compile(r"#([가-힣a-zA-Z0-9_]{2,25})")
+
+
+def _infer_hashtag_domain(tag: str) -> str | None:
+    """해시태그에서 도메인을 추론한다. 관련 없으면 None."""
+    tag_lower = tag.lower()
+
+    for domain, patterns in _HASHTAG_RELEVANCE_PATTERNS.items():
+        if any(p in tag_lower for p in patterns):
+            return domain
+
+    # 지역 + 의료기관 패턴 (예: 강남피부과, 부산성형)
+    has_region = any(r in tag_lower for r in REGION_KEYWORDS)
+    if has_region:
+        if any(p in tag_lower for p in _HASHTAG_RELEVANCE_PATTERNS["skin_clinic"]):
+            return "skin_clinic"
+        if any(p in tag_lower for p in _HASHTAG_RELEVANCE_PATTERNS["plastic_surgery"]):
+            return "plastic_surgery"
+        if any(p in tag_lower for p in _HASHTAG_RELEVANCE_PATTERNS["obesity_clinic"]):
+            return "obesity_clinic"
+        if any(kw in tag_lower for kw in ["클리닉", "병원", "의원", "한의원"]):
+            return "general"
+
+    return None
+
+
+def extract_new_hashtags(posts_raw: list[dict]) -> list[tuple[str, str]]:
+    """
+    게시물 목록에서 관련 해시태그를 추출하고 도메인을 추론한다.
+    seed_hashtag_pool 자동 확장에 사용된다.
+
+    반환: [(hashtag, domain), ...]  — 중복 제거, 관련 없는 태그 제외
+    """
+    found: dict[str, str] = {}  # hashtag → domain
+
+    for post in posts_raw:
+        caption = post.get("caption") or post.get("text") or ""
+        raw_hashtags = post.get("hashtags") or []
+        if isinstance(raw_hashtags, str):
+            raw_hashtags = [raw_hashtags]
+
+        # 캡션에서 해시태그 추출 + 이미 파싱된 hashtags 필드 합산
+        from_caption = _HASHTAG_RE.findall(caption)
+        all_tags = [t.lower() for t in from_caption] + [
+            t.lstrip("#").lower() for t in raw_hashtags if t
+        ]
+
+        for tag in all_tags:
+            tag = tag.strip()
+            if not tag or len(tag) < 2 or len(tag) > 25:
+                continue
+            if tag in _GENERIC_HASHTAG_BLOCKLIST:
+                continue
+            if tag in found:
+                continue
+
+            domain = _infer_hashtag_domain(tag)
+            if domain:
+                found[tag] = domain
+
+    return list(found.items())

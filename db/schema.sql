@@ -40,12 +40,33 @@ CREATE TABLE influencers (
   sponsorship_ratio            NUMERIC(4,3),
   has_medical_risk_flag        BOOLEAN      NOT NULL DEFAULT FALSE,
 
+  -- 연락처 (바이오/외부링크 파싱)
+  contact_email                TEXT,
+  contact_kakao                TEXT,
+  contact_phone                TEXT,
+  contact_linktree             TEXT,
+  has_contact_info             BOOLEAN      NOT NULL DEFAULT FALSE,
+
+  -- 협찬 의향 신호 (바이오 문구 감지)
+  sponsorship_intent_signal    VARCHAR(30),
+  -- 'explicit_dm' | 'explicit_email' | 'has_experience' | 'none'
+  sponsorship_intent_raw       TEXT,
+
+  -- 컨텐츠 일관성 & 최근 활동
+  content_consistency_score    NUMERIC(4,3),
+  posts_last_30d               SMALLINT,
+  is_recently_active           BOOLEAN      NOT NULL DEFAULT FALSE,
+
+  -- 최근 게시물 기반 engagement (프로필 집계값이 아닌 실측)
+  recent_engagement_rate       NUMERIC(6,4),
+
   -- 티어 & 스코어링
   follower_tier                VARCHAR(10),   -- nano / micro / mid / macro
   seed_priority                VARCHAR(10)  NOT NULL DEFAULT 'warm',
   match_score_skin_clinic      NUMERIC(5,3),
   match_score_plastic_surgery  NUMERIC(5,3),
   match_score_obesity_clinic   NUMERIC(5,3),
+  match_score_breakdown        JSONB,         -- 도메인별 점수 세부 breakdown
 
   -- 품질 시그널
   quality_flags                JSONB        NOT NULL DEFAULT '[]',
@@ -94,6 +115,11 @@ CREATE INDEX idx_influencers_status               ON influencers (status);
 CREATE INDEX idx_influencers_treatment_tags       ON influencers USING GIN (treatment_tags);
 CREATE INDEX idx_influencers_region_tags          ON influencers USING GIN (region_tags);
 CREATE INDEX idx_influencers_quality_flags        ON influencers USING GIN (quality_flags);
+
+-- B2B 활용 필터용 인덱스
+CREATE INDEX idx_influencers_has_contact          ON influencers (has_contact_info, status);
+CREATE INDEX idx_influencers_intent_signal        ON influencers (sponsorship_intent_signal, status);
+CREATE INDEX idx_influencers_active_recent        ON influencers (is_recently_active, follower_tier, status);
 
 -- updated_at 자동 갱신 트리거
 CREATE OR REPLACE FUNCTION update_updated_at()
@@ -163,6 +189,9 @@ CREATE INDEX idx_posts_is_sponsored       ON influencer_posts (is_sponsored);
 CREATE INDEX idx_posts_posted_at          ON influencer_posts (posted_at DESC);
 CREATE INDEX idx_posts_treatment_mentions ON influencer_posts USING GIN (treatment_mentions);
 CREATE INDEX idx_posts_hashtags           ON influencer_posts USING GIN (hashtags);
+-- 키워드 검색용 trigram 인덱스 (ILIKE 고속화)
+CREATE INDEX idx_posts_caption_trgm ON influencer_posts USING GIN (caption gin_trgm_ops);
+CREATE INDEX idx_influencers_bio_trgm ON influencers USING GIN (bio gin_trgm_ops);
 
 
 -- ============================================================
@@ -320,4 +349,40 @@ INSERT INTO seed_hashtag_pool (hashtag, domain, source) VALUES
   ('다이어트성공',  'obesity_clinic',   'manual'),
   ('비만치료',      'obesity_clinic',   'manual'),
   ('강남다이어트',  'obesity_clinic',   'manual'),
-  ('강남비만클리닉','obesity_clinic',   'manual');
+  ('강남비만클리닉','obesity_clinic',   'manual'),
+
+  -- 협찬 의향 태그 (협찬 받고 싶어하는 인플루언서 직접 발굴)
+  ('협찬문의환영',   'general',          'manual'),
+  ('협찬가능',       'general',          'manual'),
+  ('광고문의환영',   'general',          'manual'),
+  ('뷰티인플루언서', 'general',          'manual'),
+  ('뷰티크리에이터', 'general',          'manual'),
+  ('뷰티협찬',       'general',          'manual'),
+
+  -- 시술 일기/여정 태그 (컨텐츠 일관성 높은 계정 발굴)
+  ('피부과일기',     'skin_clinic',      'manual'),
+  ('피부관리루틴',   'skin_clinic',      'manual'),
+  ('스킨케어일기',   'skin_clinic',      'manual'),
+  ('피부개선일기',   'skin_clinic',      'manual'),
+  ('여드름치료후기', 'skin_clinic',      'manual'),
+  ('기미치료후기',   'skin_clinic',      'manual'),
+  ('아쿠아필링후기', 'skin_clinic',      'manual'),
+  ('성형브이로그',   'plastic_surgery',  'manual'),
+  ('눈성형일기',     'plastic_surgery',  'manual'),
+  ('코성형일기',     'plastic_surgery',  'manual'),
+  ('다이어트브이로그','obesity_clinic',  'manual'),
+  ('다이어트기록',   'obesity_clinic',   'manual'),
+  ('다이어트루틴',   'obesity_clinic',   'manual'),
+  ('살빼는일기',     'obesity_clinic',   'manual'),
+  ('오젬픽후기',     'obesity_clinic',   'manual'),
+  ('마운자로후기',   'obesity_clinic',   'manual'),
+
+  -- 지방 도시 + 시술 태그 (지역 클리닉 협찬 확장)
+  ('부산피부과',     'skin_clinic',      'manual'),
+  ('대구피부과',     'skin_clinic',      'manual'),
+  ('인천피부과',     'skin_clinic',      'manual'),
+  ('수원피부과',     'skin_clinic',      'manual'),
+  ('부산성형',       'plastic_surgery',  'manual'),
+  ('대구성형',       'plastic_surgery',  'manual'),
+  ('부산다이어트',   'obesity_clinic',   'manual'),
+  ('대구다이어트',   'obesity_clinic',   'manual');

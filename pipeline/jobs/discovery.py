@@ -14,10 +14,13 @@ from loguru import logger
 
 import database as db
 from apify_client import ApifyClient, parse_profile
+from instaloader_client import scrape_profiles as scrape_profiles_free
 from config import settings
 from keywords import (
     calculate_follower_tier,
     calculate_quality_flags,
+    detect_sponsorship_intent,
+    extract_contact_info,
     extract_region_tags,
     extract_treatment_tags,
     is_business_account,
@@ -77,21 +80,18 @@ async def run_discovery(hashtag_batch_size: int | None = None) -> dict:
                     await _update_hashtag_pool(ht["id"], 0, len(usernames))
                     continue
 
-                # 4. Profile Scraper (신규 handle만, 배치 단위로)
-                for i in range(0, len(new_usernames), settings.profile_batch_size):
-                    batch = new_usernames[i:i + settings.profile_batch_size]
-                    profiles = await client.scrape_profiles(batch)
-                    apify_calls += 1
+                # 4. Profile Scraper — Instaloader 사용 (무료, 로그인 불필요)
+                profiles = await scrape_profiles_free(new_usernames)
 
-                    for raw in profiles:
-                        try:
-                            saved = await _upsert_influencer(raw, source_value=ht["hashtag"])
-                            if saved:
-                                new_accounts_found += 1
-                                success_count += 1
-                        except Exception as e:
-                            logger.warning(f"Influencer upsert 실패: {e}")
-                            failed_count += 1
+                for raw in profiles:
+                    try:
+                        saved = await _upsert_influencer(raw, source_value=ht["hashtag"])
+                        if saved:
+                            new_accounts_found += 1
+                            success_count += 1
+                    except Exception as e:
+                        logger.warning(f"Influencer upsert 실패: {e}")
+                        failed_count += 1
 
                 # 5. 해시태그 풀 갱신
                 await _update_hashtag_pool(ht["id"], len(new_usernames), len(usernames))
@@ -149,14 +149,23 @@ async def run_discovery(hashtag_batch_size: int | None = None) -> dict:
 # ----------------------------------------------------------------
 
 async def _pick_hashtags(limit: int) -> list[dict]:
-    """수집 대상 해시태그를 선택한다 (7일 이상 미수집 + 미고갈)."""
+    """
+    수집 대상 해시태그를 선택한다.
+    - 미고갈: 7일 이상 미수집
+    - 고갈됐어도 30일 지나면 재시도 (새 게시물이 쌓였을 수 있음)
+    """
     rows = await db.fetch_all(
         """
         SELECT id, hashtag, domain
         FROM seed_hashtag_pool
-        WHERE is_exhausted = FALSE
-          AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '7 days')
-        ORDER BY last_crawled_at NULLS FIRST, new_accounts_found_last DESC
+        WHERE (
+          (is_exhausted = FALSE
+           AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '7 days'))
+          OR
+          (is_exhausted = TRUE
+           AND last_crawled_at < NOW() - INTERVAL '30 days')
+        )
+        ORDER BY is_exhausted ASC, last_crawled_at NULLS FIRST, new_accounts_found_last DESC
         LIMIT $1
         """,
         limit,
@@ -185,18 +194,25 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
 
     instagram_user_id = parsed.get("instagram_user_id") or None
     bio = parsed.get("bio") or ""
+    external_url = parsed.get("external_url") or ""
     followers = parsed.get("followers") or 0
     following = parsed.get("following") or 0
+    engagement_rate = parsed.get("engagement_rate")
 
     # 파생 필드 계산
     follower_tier = calculate_follower_tier(followers)
     quality_flags = calculate_quality_flags(
         followers=followers,
         following=following,
-        engagement_rate=parsed.get("engagement_rate"),
+        engagement_rate=engagement_rate,
         posts_count=parsed.get("posts_count"),
         avg_reel_plays=parsed.get("avg_reel_plays"),
     )
+
+    # 연락처 정보 추출 (B2B 핵심)
+    contact_info = extract_contact_info(bio, external_url)
+    # 협찬 의향 신호 감지
+    intent_signal, intent_raw = detect_sponsorship_intent(bio)
 
     # Triage 판단
     ok, reason = passes_triage(
@@ -208,6 +224,7 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
         handle=handle,
         full_name=parsed.get("full_name") or "",
         is_business=parsed.get("is_business", False),
+        engagement_rate=engagement_rate,
     )
     if not ok:
         # 버리지 않고 분류만 해서 저장 (재평가 가능하도록)
@@ -239,7 +256,9 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
           followers, following, posts_count,
           avg_likes, avg_comments, avg_reel_plays, engagement_rate,
           treatment_tags, region_tags, follower_tier,
-          quality_flags, status, discovered_via, last_scraped_at
+          quality_flags, status, discovered_via, last_scraped_at,
+          contact_email, contact_kakao, contact_phone, contact_linktree,
+          has_contact_info, sponsorship_intent_signal, sponsorship_intent_raw
         ) VALUES (
           $1, $2, $3, $4, $5,
           $6, $7, $8,
@@ -247,29 +266,38 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
           $11, $12, $13,
           $14, $15, $16, $17,
           $18::jsonb, $19::jsonb, $20,
-          $21::jsonb, $22, $23, NOW()
+          $21::jsonb, $22, $23, NOW(),
+          $24, $25, $26, $27,
+          $28, $29, $30
         )
         ON CONFLICT (platform, handle) DO UPDATE SET
-          instagram_user_id = COALESCE(EXCLUDED.instagram_user_id, influencers.instagram_user_id),
-          full_name         = COALESCE(EXCLUDED.full_name, influencers.full_name),
-          bio               = COALESCE(EXCLUDED.bio, influencers.bio),
-          followers         = EXCLUDED.followers,
-          following         = EXCLUDED.following,
-          posts_count       = EXCLUDED.posts_count,
-          avg_likes         = EXCLUDED.avg_likes,
-          avg_comments      = EXCLUDED.avg_comments,
-          avg_reel_plays    = EXCLUDED.avg_reel_plays,
-          engagement_rate   = EXCLUDED.engagement_rate,
-          treatment_tags    = EXCLUDED.treatment_tags,
-          region_tags       = EXCLUDED.region_tags,
-          follower_tier     = EXCLUDED.follower_tier,
-          quality_flags     = EXCLUDED.quality_flags,
-          status            = CASE
-                                WHEN influencers.status = 'deleted' THEN influencers.status
-                                ELSE EXCLUDED.status
-                              END,
-          last_scraped_at   = NOW(),
-          updated_at        = NOW()
+          instagram_user_id         = COALESCE(EXCLUDED.instagram_user_id, influencers.instagram_user_id),
+          full_name                 = COALESCE(EXCLUDED.full_name, influencers.full_name),
+          bio                       = COALESCE(EXCLUDED.bio, influencers.bio),
+          followers                 = EXCLUDED.followers,
+          following                 = EXCLUDED.following,
+          posts_count               = EXCLUDED.posts_count,
+          avg_likes                 = EXCLUDED.avg_likes,
+          avg_comments              = EXCLUDED.avg_comments,
+          avg_reel_plays            = EXCLUDED.avg_reel_plays,
+          engagement_rate           = EXCLUDED.engagement_rate,
+          treatment_tags            = EXCLUDED.treatment_tags,
+          region_tags               = EXCLUDED.region_tags,
+          follower_tier             = EXCLUDED.follower_tier,
+          quality_flags             = EXCLUDED.quality_flags,
+          contact_email             = COALESCE(EXCLUDED.contact_email, influencers.contact_email),
+          contact_kakao             = COALESCE(EXCLUDED.contact_kakao, influencers.contact_kakao),
+          contact_phone             = COALESCE(EXCLUDED.contact_phone, influencers.contact_phone),
+          contact_linktree          = COALESCE(EXCLUDED.contact_linktree, influencers.contact_linktree),
+          has_contact_info          = EXCLUDED.has_contact_info,
+          sponsorship_intent_signal = EXCLUDED.sponsorship_intent_signal,
+          sponsorship_intent_raw    = EXCLUDED.sponsorship_intent_raw,
+          status                    = CASE
+                                        WHEN influencers.status = 'deleted' THEN influencers.status
+                                        ELSE EXCLUDED.status
+                                      END,
+          last_scraped_at           = NOW(),
+          updated_at                = NOW()
         RETURNING id, (xmax = 0) AS is_insert
         """,
         parsed["platform"],
@@ -279,7 +307,7 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
         bio,
         parsed.get("profile_url"),
         parsed.get("profile_pic_url"),
-        parsed.get("external_url"),
+        external_url or None,
         parsed.get("is_verified", False),
         parsed.get("is_business", False),
         followers,
@@ -288,13 +316,20 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
         parsed.get("avg_likes"),
         parsed.get("avg_comments"),
         parsed.get("avg_reel_plays"),
-        parsed.get("engagement_rate"),
+        engagement_rate,
         json.dumps(treatment_tags, ensure_ascii=False),
         json.dumps(region_tags, ensure_ascii=False),
         follower_tier,
         json.dumps(quality_flags, ensure_ascii=False),
         status,
         f"hashtag:{source_value}",
+        contact_info["email"],
+        contact_info["kakao"],
+        contact_info["phone"],
+        contact_info["linktree"],
+        contact_info["has_contact"],
+        intent_signal,
+        intent_raw,
     )
 
     influencer_id = str(row["id"])
@@ -309,15 +344,17 @@ async def _upsert_influencer(raw: dict, source_value: str) -> bool:
         influencer_id, source_value,
     )
 
-    # enrichment 큐 등록 (신규만, 최고 우선순위)
+    # enrichment 큐 등록 (신규만)
+    # 연락처 있거나 협찬 의향 있으면 priority=1(최우선), 나머지는 priority=3
     if is_new:
+        enrich_priority = 1 if (contact_info["has_contact"] or intent_signal != "none") else 3
         await db.execute(
             """
             INSERT INTO influencer_seed_queue (influencer_id, platform, handle, job_type, priority)
-            VALUES ($1, 'instagram', $2, 'posts_refresh', 1)
+            VALUES ($1, 'instagram', $2, 'posts_refresh', $3)
             ON CONFLICT DO NOTHING
             """,
-            influencer_id, handle,
+            influencer_id, handle, enrich_priority,
         )
 
     # 스냅샷 저장
@@ -346,8 +383,10 @@ async def _save_snapshot(influencer_id: str, parsed: dict):
 
 
 async def _update_hashtag_pool(hashtag_id: str, new_found: int, total_collected: int):
-    """해시태그 풀의 수집 결과를 갱신한다."""
-    is_exhausted = total_collected > 0 and (new_found / total_collected) < 0.05
+    """해시태그 풀의 수집 결과를 갱신한다.
+    2회 이상 크롤 후에도 계속 수확률 5% 미만이면 exhausted 처리.
+    """
+    low_yield = total_collected > 0 and (new_found / total_collected) < 0.05
 
     await db.execute(
         """
@@ -356,8 +395,12 @@ async def _update_hashtag_pool(hashtag_id: str, new_found: int, total_collected:
             crawl_count              = crawl_count + 1,
             new_accounts_found_last  = $2,
             total_accounts_found     = total_accounts_found + $2,
-            is_exhausted             = $3
+            -- 처음 고갈 감지는 쿨다운만, 2회 이상 수집 후에도 저조하면 exhausted
+            is_exhausted             = CASE
+                                         WHEN $3 = TRUE AND crawl_count >= 2 THEN TRUE
+                                         ELSE FALSE
+                                       END
         WHERE id = $1
         """,
-        hashtag_id, new_found, is_exhausted,
+        hashtag_id, new_found, low_yield,
     )

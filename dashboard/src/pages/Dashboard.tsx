@@ -20,6 +20,7 @@ import {
   Influencer,
   QueueItem,
   RunLog,
+  SchedulerStatus,
   Stats,
 } from "../api";
 
@@ -176,12 +177,38 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [jobRunning, setJobRunning] = useState<string | null>(null);
+  const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
+  const [schedulerLoading, setSchedulerLoading] = useState(false);
 
   // 필터
   const [tierFilter, setTierFilter] = useState("");
   const [domainFilter, setDomainFilter] = useState("skin_clinic");
   const [growthDays, setGrowthDays] = useState(30);
   const [infPage, setInfPage] = useState(1);
+
+  const fetchScheduler = useCallback(async () => {
+    try {
+      const s = await api.getSchedulerStatus();
+      setScheduler(s);
+    } catch (e) {
+      console.error("scheduler status error:", e);
+    }
+  }, []);
+
+  const toggleScheduler = async () => {
+    if (schedulerLoading) return;
+    setSchedulerLoading(true);
+    try {
+      if (scheduler?.running) {
+        await api.stopScheduler();
+      } else {
+        await api.startScheduler();
+      }
+      await fetchScheduler();
+    } finally {
+      setSchedulerLoading(false);
+    }
+  };
 
   const fetchAll = useCallback(async () => {
     try {
@@ -214,9 +241,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchAll();
+    fetchScheduler();
     const id = setInterval(fetchAll, REFRESH_INTERVAL);
-    return () => clearInterval(id);
-  }, [fetchAll]);
+    const sid = setInterval(fetchScheduler, 5_000);
+    return () => { clearInterval(id); clearInterval(sid); };
+  }, [fetchAll, fetchScheduler]);
 
   const triggerJob = async (type: string) => {
     setJobRunning(type);
@@ -266,20 +295,47 @@ export default function Dashboard() {
             {REFRESH_INTERVAL / 1000}초마다 자동 새로고침
           </p>
         </div>
-        {/* 수동 배치 트리거 */}
-        <div className="flex gap-2">
-          {["discovery", "enrichment", "hot", "warm"].map((job) => (
+        {/* 스케줄러 & 수동 배치 트리거 */}
+        <div className="flex items-center gap-3">
+          {/* 스케줄러 재생/정지 버튼 */}
+          <div className="flex items-center gap-2 border border-slate-700 rounded-xl px-3 py-1.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                scheduler?.running ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
+              }`}
+            />
+            <span className="text-xs text-slate-400">
+              {scheduler?.running ? "스케줄러 실행 중" : "스케줄러 정지"}
+            </span>
             <button
-              key={job}
-              onClick={() => triggerJob(job)}
-              disabled={!!jobRunning}
-              className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300
-                         hover:border-indigo-500 hover:text-indigo-400 disabled:opacity-40
-                         transition-colors"
+              onClick={toggleScheduler}
+              disabled={schedulerLoading}
+              title={scheduler?.running ? "스케줄러 정지" : "스케줄러 시작"}
+              className={`ml-1 w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold transition-colors disabled:opacity-40 ${
+                scheduler?.running
+                  ? "bg-red-900/60 text-red-400 hover:bg-red-800/60"
+                  : "bg-emerald-900/60 text-emerald-400 hover:bg-emerald-800/60"
+              }`}
             >
-              {jobRunning === job ? "실행 중..." : `▶ ${JOB_LABEL[job] ?? job.toUpperCase()}`}
+              {schedulerLoading ? "…" : scheduler?.running ? "⏹" : "▶"}
             </button>
-          ))}
+          </div>
+
+          {/* 수동 배치 트리거 */}
+          <div className="flex gap-2">
+            {["discovery", "enrichment", "hot", "warm"].map((job) => (
+              <button
+                key={job}
+                onClick={() => triggerJob(job)}
+                disabled={!!jobRunning}
+                className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300
+                           hover:border-indigo-500 hover:text-indigo-400 disabled:opacity-40
+                           transition-colors"
+              >
+                {jobRunning === job ? "실행 중..." : `▶ ${JOB_LABEL[job] ?? job.toUpperCase()}`}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

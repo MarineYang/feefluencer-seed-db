@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime, timezone
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -77,12 +78,13 @@ async def lifespan(app: FastAPI):
         misfire_grace_time=1800,
     )
 
-    _scheduler.start()
-    logger.info("스케줄러 시작: Discovery 5분 / Enrichment 10분 / Refresh(hot) 매일")
+    # 스케줄러는 자동으로 시작하지 않음 — 대시보드 재생 버튼으로 수동 시작
+    logger.info("스케줄러 준비 완료 (대기 중) — /api/scheduler/start 로 시작하세요")
 
     yield
 
-    _scheduler.shutdown()
+    if _scheduler.running:
+        _scheduler.shutdown()
     await db.close_pool()
 
 
@@ -434,6 +436,256 @@ async def get_goal():
         "discarded": discarded[0],
         "domain_breakdown": dict(domain_breakdown) if domain_breakdown else {},
     }
+
+
+# ============================================================
+# 키워드 기반 인플루언서 검색 (피처링 방식)
+# ============================================================
+@app.get("/api/influencers/search")
+async def search_influencers(
+    keyword: str = Query(..., min_length=1, description="검색 키워드"),
+    domain: str | None = Query(default=None, description="skin_clinic | plastic_surgery | obesity_clinic"),
+    min_followers: int = Query(default=1_000, ge=0),
+    max_followers: int = Query(default=0, ge=0, description="0=무제한"),
+    tier: str | None = Query(default=None, description="nano | micro | mid | macro"),
+    has_contact: bool = Query(default=False, description="연락처 있는 계정만"),
+    intent: str | None = Query(default=None, description="explicit_dm | explicit_email | has_experience"),
+    recently_active: bool = Query(default=False, description="최근 30일 활동 계정만"),
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """
+    키워드로 인플루언서를 검색한다.
+    - 게시물 캡션 / 해시태그 / 바이오 / 시술 태그에서 키워드 매칭
+    - 매칭 게시물 수 기준으로 정렬 (피처링 방식)
+    """
+    keyword_pattern = f"%{keyword}%"
+
+    # 도메인별 match_score 컬럼 선택
+    score_col = {
+        "skin_clinic": "i.match_score_skin_clinic",
+        "plastic_surgery": "i.match_score_plastic_surgery",
+        "obesity_clinic": "i.match_score_obesity_clinic",
+    }.get(domain or "", "GREATEST(COALESCE(i.match_score_skin_clinic,0), COALESCE(i.match_score_plastic_surgery,0), COALESCE(i.match_score_obesity_clinic,0))")
+
+    # 동적 WHERE 조건
+    extra_conditions = []
+    extra_args: list = [keyword_pattern, keyword_pattern, keyword_pattern, min_followers]
+    arg_idx = 5  # $5부터 시작
+
+    if max_followers > 0:
+        extra_conditions.append(f"AND i.followers <= ${arg_idx}")
+        extra_args.append(max_followers)
+        arg_idx += 1
+
+    if tier:
+        extra_conditions.append(f"AND i.follower_tier = ${arg_idx}")
+        extra_args.append(tier)
+        arg_idx += 1
+
+    if has_contact:
+        extra_conditions.append("AND i.has_contact_info = TRUE")
+
+    if intent:
+        extra_conditions.append(f"AND i.sponsorship_intent_signal = ${arg_idx}")
+        extra_args.append(intent)
+        arg_idx += 1
+
+    if recently_active:
+        extra_conditions.append("AND i.is_recently_active = TRUE")
+
+    extra_where = " ".join(extra_conditions)
+
+    rows = await db.fetch_all(
+        f"""
+        WITH matching_posts AS (
+          SELECT
+            influencer_id,
+            COUNT(*) AS matched_post_count,
+            ARRAY_REMOVE(
+              ARRAY_AGG(
+                CASE WHEN caption IS NOT NULL AND caption != ''
+                     THEN LEFT(caption, 150) END
+                ORDER BY posted_at DESC NULLS LAST
+              ),
+              NULL
+            ) AS sample_captions
+          FROM influencer_posts
+          WHERE caption ILIKE $1
+             OR hashtags::text ILIKE $2
+          GROUP BY influencer_id
+        )
+        SELECT
+          i.id, i.handle, i.full_name, i.bio,
+          i.followers, i.following, i.posts_count,
+          i.follower_tier, i.engagement_rate, i.avg_likes, i.avg_comments,
+          i.profile_url, i.profile_pic_url,
+          i.treatment_tags, i.region_tags,
+          i.match_score_skin_clinic, i.match_score_plastic_surgery, i.match_score_obesity_clinic,
+          i.has_contact_info, i.contact_email, i.contact_kakao, i.contact_linktree,
+          i.sponsorship_intent_signal, i.is_recently_active, i.last_posted_at,
+          i.recent_engagement_rate, i.content_consistency_score,
+          COALESCE(mp.matched_post_count, 0) AS matched_post_count,
+          mp.sample_captions,
+          CASE
+            WHEN i.bio ILIKE $3 THEN 'bio'
+            WHEN i.treatment_tags::text ILIKE $3 THEN 'treatment_tag'
+            ELSE 'post_content'
+          END AS match_source,
+          {score_col} AS domain_score
+        FROM influencers i
+        LEFT JOIN matching_posts mp ON mp.influencer_id = i.id
+        WHERE i.status = 'active'
+          AND i.followers >= $4
+          AND (
+            mp.influencer_id IS NOT NULL
+            OR i.bio ILIKE $3
+            OR i.treatment_tags::text ILIKE $3
+          )
+          {extra_where}
+        ORDER BY
+          matched_post_count DESC,
+          domain_score DESC NULLS LAST,
+          i.followers DESC
+        LIMIT {limit} OFFSET {offset}
+        """,
+        *extra_args,
+    )
+
+    now = datetime.now(timezone.utc)
+
+    def _format_last_upload(last_posted_at) -> str | None:
+        if not last_posted_at:
+            return None
+        try:
+            dt = last_posted_at if hasattr(last_posted_at, "tzinfo") else None
+            if dt is None:
+                return None
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            days = (now - dt).days
+            if days == 0:
+                return "오늘"
+            if days < 7:
+                return f"{days}일 전"
+            if days < 30:
+                return f"{days // 7}주 전"
+            return f"{days // 30}개월 전"
+        except Exception:
+            return None
+
+    items = []
+    for r in rows:
+        items.append({
+            "handle": r["handle"],
+            "full_name": r["full_name"],
+            "bio": r["bio"],
+            "profile_url": r["profile_url"],
+            "profile_pic_url": r["profile_pic_url"],
+            "followers": r["followers"],
+            "following": r["following"],
+            "posts_count": r["posts_count"],
+            "follower_tier": r["follower_tier"],
+            "engagement_rate": float(r["engagement_rate"]) if r["engagement_rate"] else None,
+            "recent_engagement_rate": float(r["recent_engagement_rate"]) if r["recent_engagement_rate"] else None,
+            "avg_likes": float(r["avg_likes"]) if r["avg_likes"] else None,
+            "avg_comments": float(r["avg_comments"]) if r["avg_comments"] else None,
+            "treatment_tags": r["treatment_tags"] or [],
+            "region_tags": r["region_tags"] or [],
+            "match_score_skin_clinic": float(r["match_score_skin_clinic"]) if r["match_score_skin_clinic"] else None,
+            "match_score_plastic_surgery": float(r["match_score_plastic_surgery"]) if r["match_score_plastic_surgery"] else None,
+            "match_score_obesity_clinic": float(r["match_score_obesity_clinic"]) if r["match_score_obesity_clinic"] else None,
+            "content_consistency_score": float(r["content_consistency_score"]) if r["content_consistency_score"] else None,
+            "has_contact_info": r["has_contact_info"],
+            "contact_email": r["contact_email"],
+            "contact_kakao": r["contact_kakao"],
+            "contact_linktree": r["contact_linktree"],
+            "sponsorship_intent_signal": r["sponsorship_intent_signal"],
+            "is_recently_active": r["is_recently_active"],
+            "last_posted_at": r["last_posted_at"].isoformat() if r["last_posted_at"] else None,
+            "last_upload": _format_last_upload(r["last_posted_at"]),
+            "matched_post_count": r["matched_post_count"],
+            "sample_captions": (r["sample_captions"] or [])[:3],
+            "match_source": r["match_source"],
+        })
+
+    return {
+        "keyword": keyword,
+        "source": "seeddb",
+        "count": len(items),
+        "offset": offset,
+        "limit": limit,
+        "items": items,
+    }
+
+
+@app.get("/api/influencers/{handle}")
+async def get_influencer(handle: str):
+    """핸들로 인플루언서 상세 정보를 조회한다."""
+    handle = handle.lstrip("@")
+    row = await db.fetch_one(
+        """
+        SELECT id, handle, full_name, bio, profile_url, profile_pic_url, external_url,
+               followers, following, posts_count, engagement_rate, avg_likes, avg_comments,
+               avg_reel_plays, follower_tier, treatment_tags, region_tags,
+               match_score_skin_clinic, match_score_plastic_surgery, match_score_obesity_clinic,
+               match_score_breakdown, has_contact_info, contact_email, contact_kakao,
+               contact_phone, contact_linktree, sponsorship_intent_signal,
+               is_recently_active, posts_last_30d, recent_engagement_rate,
+               content_consistency_score, status, last_posted_at, last_scraped_at
+        FROM influencers
+        WHERE platform = 'instagram' AND handle = $1
+        """,
+        handle,
+    )
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"@{handle} not found")
+
+    r = dict(row)
+    r["last_posted_at"] = r["last_posted_at"].isoformat() if r["last_posted_at"] else None
+    r["last_scraped_at"] = r["last_scraped_at"].isoformat() if r["last_scraped_at"] else None
+    return r
+
+
+# ============================================================
+# 스케줄러 수동 제어
+# ============================================================
+@app.get("/api/scheduler/status")
+async def scheduler_status():
+    """스케줄러 실행 상태를 반환한다."""
+    running = _scheduler is not None and _scheduler.running
+    jobs = []
+    if running:
+        for job in _scheduler.get_jobs():
+            next_run = job.next_run_time
+            jobs.append({
+                "id": job.id,
+                "next_run": next_run.isoformat() if next_run else None,
+            })
+    return {"running": running, "jobs": jobs}
+
+
+@app.post("/api/scheduler/start")
+async def scheduler_start():
+    """스케줄러를 시작한다."""
+    global _scheduler
+    if _scheduler is not None and _scheduler.running:
+        return {"ok": True, "message": "이미 실행 중입니다"}
+    _scheduler.start()
+    logger.info("스케줄러 수동 시작 — Discovery 5분 / Enrichment 2분 / Refresh 매일")
+    return {"ok": True, "message": "스케줄러 시작됨"}
+
+
+@app.post("/api/scheduler/stop")
+async def scheduler_stop():
+    """스케줄러를 정지한다."""
+    global _scheduler
+    if _scheduler is None or not _scheduler.running:
+        return {"ok": True, "message": "이미 정지 상태입니다"}
+    _scheduler.shutdown(wait=False)
+    logger.info("스케줄러 수동 정지")
+    return {"ok": True, "message": "스케줄러 정지됨"}
 
 
 @app.post("/api/admin/reclassify-business")

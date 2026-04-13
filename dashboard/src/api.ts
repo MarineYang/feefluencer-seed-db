@@ -100,6 +100,11 @@ export interface GoalStats {
   domain_breakdown: { skin_clinic: number; plastic_surgery: number; obesity_clinic: number };
 }
 
+export interface SchedulerStatus {
+  running: boolean;
+  jobs: { id: string; next_run: string | null }[];
+}
+
 export const api = {
   getGoal: () => get<GoalStats>("/stats/goal"),
   getStats: () => get<Stats>("/stats"),
@@ -117,4 +122,7 @@ export const api = {
   triggerDiscovery: () => post("/jobs/discovery"),
   triggerEnrichment: () => post("/jobs/enrichment"),
   triggerRefresh: (tier: string) => post(`/jobs/refresh/${tier}`),
+  getSchedulerStatus: () => get<SchedulerStatus>("/scheduler/status"),
+  startScheduler: () => post<{ ok: boolean; message: string }>("/scheduler/start"),
+  stopScheduler: () => post<{ ok: boolean; message: string }>("/scheduler/stop"),
 };

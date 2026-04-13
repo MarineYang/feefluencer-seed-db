@@ -14,9 +14,11 @@ import database as db
 from apify_client import ApifyClient, parse_post
 from config import settings
 from keywords import (
+    calculate_content_consistency,
     calculate_match_score,
     calculate_quality_flags,
     extract_clinic_brands,
+    extract_new_hashtags,
     extract_region_tags,
     extract_treatment_tags,
     has_medical_risk,
@@ -83,6 +85,11 @@ async def run_enrichment(batch_size: int | None = None) -> dict:
             # 게시물 upsert
             await _upsert_posts(posts_raw, influencer_id)
 
+            # 새 해시태그 자동 발굴 → seed_hashtag_pool 확장
+            new_hashtags = extract_new_hashtags(posts_raw)
+            if new_hashtags:
+                await _register_new_hashtags(new_hashtags)
+
             # 활동성 체크: 90일 이상 미활동 → stale
             last_posted = analysis.get("last_posted_at")
             if last_posted:
@@ -94,7 +101,7 @@ async def run_enrichment(batch_size: int | None = None) -> dict:
                         last_dt = last_posted
                     if datetime.now(timezone.utc) - last_dt > timedelta(days=90):
                         await db.execute(
-                            "UPDATE influencers SET status='stale', updated_at=NOW() WHERE id=$1",
+                            "UPDATE influencers SET status='stale', is_recently_active=FALSE, updated_at=NOW() WHERE id=$1",
                             influencer_id,
                         )
                         await _mark_job(job_id, "done")
@@ -177,9 +184,13 @@ async def _pick_queue_jobs(limit: int) -> list[dict]:
 
 def _analyze_posts(posts_raw: list[dict]) -> dict:
     """게시물 목록을 분석해 인플루언서 수준의 집계 지표를 반환한다."""
+    from datetime import timedelta
     total = len(posts_raw)
     if total == 0:
         return {}
+
+    now = datetime.now(timezone.utc)
+    thirty_days_ago = now - timedelta(days=30)
 
     sponsored_count = 0
     treatment_count = 0
@@ -187,6 +198,15 @@ def _analyze_posts(posts_raw: list[dict]) -> dict:
     all_treatment_tags: set[str] = set()
     all_region_tags: set[str] = set()
     last_posted_at = None
+
+    # 일관성 계산용
+    post_treatment_flags: list[bool] = []
+
+    # 최근 30일 지표
+    posts_last_30d = 0
+    recent_likes_sum = 0
+    recent_comments_sum = 0
+    recent_post_count = 0
 
     for post in posts_raw:
         caption = post.get("caption") or post.get("text") or ""
@@ -202,7 +222,9 @@ def _analyze_posts(posts_raw: list[dict]) -> dict:
 
         # 시술 키워드
         tags = extract_treatment_tags(full_text)
-        if tags:
+        has_treatment = bool(tags)
+        post_treatment_flags.append(has_treatment)
+        if has_treatment:
             treatment_count += 1
             all_treatment_tags.update(tags)
 
@@ -219,6 +241,25 @@ def _analyze_posts(posts_raw: list[dict]) -> dict:
         if posted and (last_posted_at is None or posted > last_posted_at):
             last_posted_at = posted
 
+        # 최근 30일 게시물 분리
+        if posted:
+            try:
+                if isinstance(posted, str):
+                    posted_dt = datetime.fromisoformat(posted.replace("Z", "+00:00"))
+                else:
+                    posted_dt = posted
+                if posted_dt.tzinfo is None:
+                    posted_dt = posted_dt.replace(tzinfo=timezone.utc)
+                if posted_dt >= thirty_days_ago:
+                    posts_last_30d += 1
+                    recent_likes_sum += post.get("likesCount") or post.get("likes") or 0
+                    recent_comments_sum += post.get("commentsCount") or post.get("comments") or 0
+                    recent_post_count += 1
+            except Exception:
+                pass
+
+    consistency_score = calculate_content_consistency(post_treatment_flags)
+
     return {
         "treatment_tags": list(all_treatment_tags),
         "region_tags": list(all_region_tags),
@@ -226,6 +267,11 @@ def _analyze_posts(posts_raw: list[dict]) -> dict:
         "sponsorship_ratio": round(sponsored_count / total, 3),
         "has_medical_risk_flag": has_risk,
         "last_posted_at": last_posted_at,
+        "content_consistency_score": consistency_score,
+        "posts_last_30d": posts_last_30d,
+        "is_recently_active": posts_last_30d > 0,
+        "recent_interactions": recent_likes_sum + recent_comments_sum,
+        "recent_post_count": recent_post_count,
     }
 
 
@@ -234,11 +280,11 @@ async def _update_influencer_enrichment(influencer_id: str, analysis: dict):
     if not analysis:
         return
 
-    # 현재 influencer 정보 조회
+    # 현재 influencer 정보 조회 (신규 필드 포함)
     inf = await db.fetch_one(
         """
-        SELECT followers, following, engagement_rate, posts_count,
-               avg_reel_plays, follower_tier, quality_flags, anomaly_flag
+        SELECT followers, follower_tier, quality_flags, anomaly_flag,
+               has_contact_info, sponsorship_intent_signal
         FROM influencers WHERE id = $1
         """,
         influencer_id,
@@ -254,8 +300,22 @@ async def _update_influencer_enrichment(influencer_id: str, analysis: dict):
     has_risk = analysis.get("has_medical_risk_flag", False)
     quality_flags = json.loads(inf["quality_flags"]) if isinstance(inf["quality_flags"], str) else (inf["quality_flags"] or [])
     anomaly_flag = inf["anomaly_flag"] or False
+    has_contact_info = inf["has_contact_info"] or False
+    sponsorship_intent_signal = inf["sponsorship_intent_signal"] or "none"
+    content_consistency_score = analysis.get("content_consistency_score", 0.0)
+    is_recently_active = analysis.get("is_recently_active", False)
 
-    # match_score 계산
+    # 최근 게시물 기반 engagement rate 계산
+    recent_interactions = analysis.get("recent_interactions", 0)
+    recent_post_count = analysis.get("recent_post_count", 0)
+    followers = inf["followers"] or 1
+    recent_engagement_rate = None
+    if recent_post_count > 0 and followers > 0:
+        recent_engagement_rate = round(
+            (recent_interactions / recent_post_count) / followers, 6
+        )
+
+    # match_score 계산 (신규 파라미터 포함, breakdown 반환)
     common_args = dict(
         treatment_tags=treatment_tags,
         region_tags=region_tags,
@@ -265,10 +325,21 @@ async def _update_influencer_enrichment(influencer_id: str, analysis: dict):
         has_risk=has_risk,
         quality_flags=quality_flags,
         anomaly_flag=anomaly_flag,
+        has_contact_info=has_contact_info,
+        sponsorship_intent_signal=sponsorship_intent_signal,
+        content_consistency_score=content_consistency_score,
+        is_recently_active=is_recently_active,
+        recent_engagement_rate=recent_engagement_rate,
     )
-    score_skin = calculate_match_score(domain="skin_clinic", **common_args)
-    score_plastic = calculate_match_score(domain="plastic_surgery", **common_args)
-    score_obesity = calculate_match_score(domain="obesity_clinic", **common_args)
+    score_skin, breakdown_skin = calculate_match_score(domain="skin_clinic", **common_args)
+    score_plastic, breakdown_plastic = calculate_match_score(domain="plastic_surgery", **common_args)
+    score_obesity, breakdown_obesity = calculate_match_score(domain="obesity_clinic", **common_args)
+
+    match_score_breakdown = {
+        "skin_clinic": breakdown_skin,
+        "plastic_surgery": breakdown_plastic,
+        "obesity_clinic": breakdown_obesity,
+    }
 
     await db.execute(
         """
@@ -282,6 +353,11 @@ async def _update_influencer_enrichment(influencer_id: str, analysis: dict):
           match_score_skin_clinic     = $8,
           match_score_plastic_surgery = $9,
           match_score_obesity_clinic  = $10,
+          content_consistency_score   = $11,
+          posts_last_30d              = $12,
+          is_recently_active          = $13,
+          recent_engagement_rate      = $14,
+          match_score_breakdown       = $15::jsonb,
           updated_at                  = NOW()
         WHERE id = $1
         """,
@@ -295,6 +371,11 @@ async def _update_influencer_enrichment(influencer_id: str, analysis: dict):
         score_skin,
         score_plastic,
         score_obesity,
+        content_consistency_score,
+        analysis.get("posts_last_30d"),
+        is_recently_active,
+        recent_engagement_rate,
+        json.dumps(match_score_breakdown, ensure_ascii=False),
     )
 
 
@@ -366,6 +447,32 @@ async def _save_sponsorship_signals(influencer_id: str, posts_raw: list[dict]):
                 """,
                 influencer_id, brand, post_url,
             )
+
+
+async def _register_new_hashtags(new_hashtags: list[tuple[str, str]]):
+    """
+    게시물 분석에서 발굴된 해시태그를 seed_hashtag_pool에 자동 등록한다.
+    이미 존재하는 해시태그는 무시 (ON CONFLICT DO NOTHING).
+    """
+    registered = 0
+    for hashtag, domain in new_hashtags:
+        try:
+            result = await db.fetch_one(
+                """
+                INSERT INTO seed_hashtag_pool (hashtag, domain, source)
+                VALUES ($1, $2, 'auto_discovered')
+                ON CONFLICT (hashtag) DO NOTHING
+                RETURNING hashtag
+                """,
+                hashtag, domain,
+            )
+            if result:
+                registered += 1
+        except Exception as e:
+            logger.debug(f"해시태그 등록 실패 #{hashtag}: {e}")
+
+    if registered > 0:
+        logger.info(f"새 해시태그 {registered}개 자동 등록 (총 발굴 {len(new_hashtags)}개)")
 
 
 async def _mark_job(job_id: str, status: str, error: str | None = None):
