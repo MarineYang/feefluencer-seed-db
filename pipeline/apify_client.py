@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
@@ -166,7 +167,12 @@ class ApifyClient:
 def parse_profile(raw: dict) -> dict:  # noqa: C901
     """Apify 프로필 응답을 DB 저장용 dict로 변환한다."""
     followers = raw.get("followersCount") or raw.get("followers") or 0
-    following = raw.get("followingCount") or raw.get("following") or 0
+    following = (
+        raw.get("followsCount")        # Apify instagram-profile-scraper 공식 필드
+        or raw.get("followingCount")
+        or raw.get("following")
+        or 0
+    )
     posts_count = raw.get("postsCount") or raw.get("mediaCount") or 0
     avg_likes = raw.get("avgLikes") or raw.get("averageLikes")
     avg_comments = raw.get("avgComments") or raw.get("averageComments")
@@ -196,6 +202,22 @@ def parse_profile(raw: dict) -> dict:  # noqa: C901
     }
 
 
+def parse_datetime(value) -> Optional[datetime]:
+    """Apify의 ISO 8601 문자열 또는 datetime을 datetime 객체로 변환한다."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        # '2026-02-18T17:16:57.000Z' 같은 UTC 문자열 처리
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning(f"datetime 파싱 실패: {value!r}")
+            return None
+    return None
+
+
 def parse_post(raw: dict, influencer_id: str) -> dict:
     """Apify 게시물 응답을 DB 저장용 dict로 변환한다."""
     caption = raw.get("caption") or raw.get("text") or ""
@@ -220,5 +242,5 @@ def parse_post(raw: dict, influencer_id: str) -> dict:
         "plays": raw.get("videoViewCount") or raw.get("plays") or 0,
         "hashtags": json.dumps(hashtags, ensure_ascii=False),
         "mentions": json.dumps(mentions, ensure_ascii=False),
-        "posted_at": raw.get("timestamp") or raw.get("postedAt"),
+        "posted_at": parse_datetime(raw.get("timestamp") or raw.get("postedAt")),
     }

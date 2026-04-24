@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from loguru import logger
 
 import database as db
-from apify_client import ApifyClient, parse_post
+from apify_client import ApifyClient, parse_datetime, parse_post
 from config import settings
 from keywords import (
     calculate_content_consistency,
@@ -91,25 +91,17 @@ async def run_enrichment(batch_size: int | None = None) -> dict:
                 await _register_new_hashtags(new_hashtags)
 
             # 활동성 체크: 90일 이상 미활동 → stale
+            from datetime import timedelta
             last_posted = analysis.get("last_posted_at")
-            if last_posted:
-                from datetime import datetime, timezone, timedelta
-                try:
-                    if isinstance(last_posted, str):
-                        last_dt = datetime.fromisoformat(last_posted.replace("Z", "+00:00"))
-                    else:
-                        last_dt = last_posted
-                    if datetime.now(timezone.utc) - last_dt > timedelta(days=90):
-                        await db.execute(
-                            "UPDATE influencers SET status='stale', is_recently_active=FALSE, updated_at=NOW() WHERE id=$1",
-                            influencer_id,
-                        )
-                        await _mark_job(job_id, "done")
-                        skipped += 1
-                        logger.debug(f"활동 없음(90일) → stale: @{handle}")
-                        continue
-                except Exception:
-                    pass
+            if last_posted and datetime.now(timezone.utc) - last_posted > timedelta(days=90):
+                await db.execute(
+                    "UPDATE influencers SET status='stale', is_recently_active=FALSE, updated_at=NOW() WHERE id=$1",
+                    influencer_id,
+                )
+                await _mark_job(job_id, "done")
+                skipped += 1
+                logger.debug(f"활동 없음(90일) → stale: @{handle}")
+                continue
 
             # influencer 필드 갱신
             await _update_influencer_enrichment(influencer_id, analysis)
@@ -236,27 +228,21 @@ def _analyze_posts(posts_raw: list[dict]) -> dict:
         if not has_risk and has_medical_risk(full_text):
             has_risk = True
 
-        # 최근 게시 날짜
-        posted = post.get("timestamp") or post.get("postedAt")
-        if posted and (last_posted_at is None or posted > last_posted_at):
-            last_posted_at = posted
-
-        # 최근 30일 게시물 분리
+        # 최근 게시 날짜 (datetime 객체로 변환)
+        posted = parse_datetime(post.get("timestamp") or post.get("postedAt"))
         if posted:
-            try:
-                if isinstance(posted, str):
-                    posted_dt = datetime.fromisoformat(posted.replace("Z", "+00:00"))
-                else:
-                    posted_dt = posted
-                if posted_dt.tzinfo is None:
-                    posted_dt = posted_dt.replace(tzinfo=timezone.utc)
-                if posted_dt >= thirty_days_ago:
-                    posts_last_30d += 1
-                    recent_likes_sum += post.get("likesCount") or post.get("likes") or 0
-                    recent_comments_sum += post.get("commentsCount") or post.get("comments") or 0
-                    recent_post_count += 1
-            except Exception:
-                pass
+            if posted.tzinfo is None:
+                posted = posted.replace(tzinfo=timezone.utc)
+
+            if last_posted_at is None or posted > last_posted_at:
+                last_posted_at = posted
+
+            # 최근 30일 게시물 분리
+            if posted >= thirty_days_ago:
+                posts_last_30d += 1
+                recent_likes_sum += post.get("likesCount") or post.get("likes") or 0
+                recent_comments_sum += post.get("commentsCount") or post.get("comments") or 0
+                recent_post_count += 1
 
     consistency_score = calculate_content_consistency(post_treatment_flags)
 

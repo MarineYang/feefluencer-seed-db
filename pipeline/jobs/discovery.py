@@ -14,7 +14,6 @@ from loguru import logger
 
 import database as db
 from apify_client import ApifyClient, parse_profile
-from instaloader_client import scrape_profiles as scrape_profiles_free
 from config import settings
 from keywords import (
     calculate_follower_tier,
@@ -28,10 +27,17 @@ from keywords import (
 )
 
 
-async def run_discovery(hashtag_batch_size: int | None = None) -> dict:
+async def run_discovery(
+    hashtag_batch_size: int | None = None,
+    target_hashtags: list[str] | None = None,
+) -> dict:
     """
     Discovery 배치를 실행한다.
-    반환: 실행 결과 요약 dict
+
+    Args:
+        hashtag_batch_size: _pick_hashtags로 자동 선택할 해시태그 개수
+        target_hashtags:    특정 해시태그만 강제로 사용 (테스트용)
+                            지정 시 _pick_hashtags 로직을 건너뜀
     """
     batch_size = hashtag_batch_size or settings.discovery_hashtag_batch
     client = ApifyClient()
@@ -55,12 +61,18 @@ async def run_discovery(hashtag_batch_size: int | None = None) -> dict:
 
     try:
         # 1. 수집할 해시태그 선택
-        hashtags = await _pick_hashtags(batch_size)
-        if not hashtags:
-            logger.info("Discovery: 수집할 해시태그 없음 (모두 최신 상태)")
-            return {"status": "skipped", "reason": "no_hashtags"}
+        if target_hashtags:
+            hashtags = await _get_hashtags_by_name(target_hashtags)
+            if not hashtags:
+                logger.warning(f"Discovery: 지정된 해시태그를 풀에서 찾을 수 없음 ({target_hashtags})")
+                return {"status": "skipped", "reason": "target_not_found"}
+        else:
+            hashtags = await _pick_hashtags(batch_size)
+            if not hashtags:
+                logger.info("Discovery: 수집할 해시태그 없음 (모두 최신 상태)")
+                return {"status": "skipped", "reason": "no_hashtags"}
 
-        logger.info(f"Discovery 시작: {len(hashtags)}개 해시태그")
+        logger.info(f"Discovery 시작: {len(hashtags)}개 해시태그 ({[h['hashtag'] for h in hashtags]})")
 
         for ht in hashtags:
             try:
@@ -80,8 +92,8 @@ async def run_discovery(hashtag_batch_size: int | None = None) -> dict:
                     await _update_hashtag_pool(ht["id"], 0, len(usernames))
                     continue
 
-                # 4. Profile Scraper — Instaloader 사용 (무료, 로그인 불필요)
-                profiles = await scrape_profiles_free(new_usernames)
+                # 4. Profile Scraper — Apify 사용
+                profiles = await client.scrape_profiles(new_usernames)
 
                 for raw in profiles:
                     try:
@@ -147,6 +159,15 @@ async def run_discovery(hashtag_batch_size: int | None = None) -> dict:
 # ----------------------------------------------------------------
 # 내부 헬퍼
 # ----------------------------------------------------------------
+
+async def _get_hashtags_by_name(names: list[str]) -> list[dict]:
+    """지정된 해시태그명으로 풀에서 직접 조회 (테스트용)."""
+    rows = await db.fetch_all(
+        "SELECT id, hashtag, domain FROM seed_hashtag_pool WHERE hashtag = ANY($1)",
+        names,
+    )
+    return [dict(r) for r in rows]
+
 
 async def _pick_hashtags(limit: int) -> list[dict]:
     """

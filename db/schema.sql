@@ -385,4 +385,21 @@ INSERT INTO seed_hashtag_pool (hashtag, domain, source) VALUES
   ('부산성형',       'plastic_surgery',  'manual'),
   ('대구성형',       'plastic_surgery',  'manual'),
   ('부산다이어트',   'obesity_clinic',   'manual'),
-  ('대구다이어트',   'obesity_clinic',   'manual');
+  ('대구다이어트',   'obesity_clinic',   'manual'),
+
+  -- Competitor Mining (이미 협찬·체험 경험자 직접 발굴)
+  ('피부과협찬',     'skin_clinic',      'competitor_tag'),
+  ('피부과체험단',   'skin_clinic',      'competitor_tag'),
+  ('피부과이벤트',   'skin_clinic',      'competitor_tag'),
+  ('피부과서포터즈', 'skin_clinic',      'competitor_tag'),
+  ('성형외과협찬',   'plastic_surgery',  'competitor_tag'),
+  ('성형체험단',     'plastic_surgery',  'competitor_tag'),
+  ('성형이벤트',     'plastic_surgery',  'competitor_tag'),
+  ('다이어트협찬',   'obesity_clinic',   'competitor_tag'),
+  ('다이어트체험단', 'obesity_clinic',   'competitor_tag'),
+  ('비만클리닉협찬', 'obesity_clinic',   'competitor_tag'),
+  ('시술체험',       'general',          'competitor_tag'),
+  ('시술체험단',     'general',          'competitor_tag'),
+  ('병원협찬',       'general',          'competitor_tag'),
+  ('병원체험단',     'general',          'competitor_tag'),
+  ('의원협찬',       'general',          'competitor_tag');

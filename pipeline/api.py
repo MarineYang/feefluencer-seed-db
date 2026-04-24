@@ -12,6 +12,9 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from logging_config import setup_logging
+setup_logging()
+
 import database as db
 from config import settings
 from jobs.discovery import run_discovery

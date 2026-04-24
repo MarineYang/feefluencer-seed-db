@@ -470,6 +470,25 @@ _BUSINESS_HANDLE_KEYWORDS: list[str] = [
     "에스테틱", "클리닉", "피부과", "성형외과",
 ]
 
+# full_name / handle / bio 어디에든 있으면 단독으로 업체 확정인 강력 키워드
+# (의료기관·법인·체인지점 등 일반 인플루언서가 쓸 가능성이 거의 없는 단어)
+_BUSINESS_STRONG_KEYWORDS: list[str] = [
+    # 한국 의료기관
+    "의원", "병원", "한방병원", "한의원", "한방의원",
+    "한방", "한의",
+    # 진료과
+    "피부과", "성형외과", "비뇨기과", "산부인과", "이비인후과",
+    "내과의원", "외과의원", "치과",
+    # 의료/미용 전문 용어
+    "메디컬", "medical", "medispa",
+    # 영문 의료기관
+    "clinic", "hospital",
+    # 법인
+    "(주)", "주식회사", "co.,", "ltd", "corp",
+    # 체인 지점 표기
+    "지점", "본점", "분점",
+]
+
 
 def passes_triage(
     followers: int,
@@ -493,6 +512,14 @@ def passes_triage(
         return False, "nano_low_engagement"
     if posts_count is not None and posts_count < 6:
         return False, "too_few_posts"
+    # 팔로워/팔로잉 비율 — 인플루언서 자격 핵심 지표
+    # ff_ratio 2.0 미만이면 맞팔/일반 계정으로 간주
+    ff_ratio = followers / max(following, 1)
+    if ff_ratio < 2.0:
+        return False, "low_ff_ratio"
+    # 매스 팔로잉 계정 (인플루언서는 팔로잉이 많지 않음)
+    if following > 7_500:
+        return False, "mass_following"
     if len(quality_flags) >= 2:
         return False, "low_quality"
     if is_business_account(bio=bio, handle=handle, full_name=full_name, is_business=is_business):
@@ -514,17 +541,18 @@ def is_business_account(
     handle_lower = (handle or "").lower()
     name_lower = (full_name or "").lower()
 
-    # Apify가 비즈니스 계정으로 표시한 경우
-    # (단독으로는 너무 광범위하므로 다른 조건과 조합)
+    # 1. 강력 키워드 (의원/병원/(주)/clinic 등) — full_name·handle·bio 어디든
+    #    하나만 걸려도 업체 확정 (일반 인플루언서가 쓸 가능성이 거의 없음)
+    haystack = f"{name_lower} {handle_lower} {bio_lower}"
+    for kw in _BUSINESS_STRONG_KEYWORDS:
+        if kw in haystack:
+            return True
+
+    # 2. 약한 키워드 조합 (기존 로직)
     bio_hit = sum(1 for kw in _BUSINESS_BIO_KEYWORDS if kw in bio_lower)
     handle_hit = any(kw in handle_lower for kw in _BUSINESS_HANDLE_KEYWORDS)
     name_hit = any(kw in name_lower for kw in _BUSINESS_BIO_KEYWORDS[:6])  # 직함/공간 유형만
 
-    # 판단 기준:
-    # - bio에 업체 키워드 2개 이상
-    # - handle에 업체 키워드 + bio에 업체 키워드 1개 이상
-    # - is_business=True + bio에 업체 키워드 1개 이상
-    # - full_name에 직함/공간 유형 포함
     if bio_hit >= 2:
         return True
     if handle_hit and bio_hit >= 1:
