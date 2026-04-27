@@ -5,97 +5,35 @@ FastAPI 모니터링 API
 """
 from contextlib import asynccontextmanager
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timezone
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from loguru import logger
+import httpx
 
 from logging_config import setup_logging
 setup_logging()
 
 import database as db
 from config import settings
-from jobs.discovery import run_discovery
-from jobs.enrichment import run_enrichment
-from jobs.refresh import run_refresh
-
-_scheduler: AsyncIOScheduler | None = None
-
-
-async def _job_discovery():
-    logger.info("=== [스케줄] Discovery 시작 ===")
-    try:
-        result = await run_discovery()
-        logger.info(f"=== [스케줄] Discovery 완료: {result} ===")
-    except Exception as e:
-        logger.error(f"=== [스케줄] Discovery 오류: {e} ===")
-
-
-async def _job_enrichment():
-    logger.info("=== [스케줄] Enrichment 시작 ===")
-    try:
-        result = await run_enrichment()
-        logger.info(f"=== [스케줄] Enrichment 완료: {result} ===")
-    except Exception as e:
-        logger.error(f"=== [스케줄] Enrichment 오류: {e} ===")
-
-
-async def _job_refresh_hot():
-    try:
-        await run_refresh("hot")
-    except Exception as e:
-        logger.error(f"=== [스케줄] Refresh(hot) 오류: {e} ===")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _scheduler
     await db.get_pool()
-
-    _scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-
-    # Discovery: 5분마다 (해시태그 → 프로필 → Triage)
-    _scheduler.add_job(
-        _job_discovery,
-        CronTrigger.from_crontab("*/5 * * * *", timezone="Asia/Seoul"),
-        id="discovery",
-        max_instances=1,
-        misfire_grace_time=60,
-    )
-    # Enrichment: 2분마다 (큐 우선순위 1번 계정 즉시 처리)
-    _scheduler.add_job(
-        _job_enrichment,
-        CronTrigger.from_crontab("*/2 * * * *", timezone="Asia/Seoul"),
-        id="enrichment",
-        max_instances=1,
-        misfire_grace_time=60,
-    )
-    # Refresh(hot): 매일 오전 8시
-    _scheduler.add_job(
-        _job_refresh_hot,
-        CronTrigger.from_crontab(settings.refresh_cron, timezone="Asia/Seoul"),
-        id="refresh_hot",
-        max_instances=1,
-        misfire_grace_time=1800,
-    )
-
-    # 스케줄러는 자동으로 시작하지 않음 — 대시보드 재생 버튼으로 수동 시작
-    logger.info("스케줄러 준비 완료 (대기 중) — /api/scheduler/start 로 시작하세요")
-
+    logger.info("API 서버 준비 완료 (스케줄러 비활성 — 수동 수집 모드)")
     yield
-
-    if _scheduler.running:
-        _scheduler.shutdown()
     await db.close_pool()
 
 
 app = FastAPI(title="Feefluencer Seeding Monitor", lifespan=lifespan)
 
+_cors_origins = settings.cors_origins.split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
+    allow_origins=_cors_origins,
+    allow_origin_regex=r".*" if "*" in _cors_origins else None,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -712,6 +650,29 @@ async def reclassify_business():
             )
             updated += 1
     return {"reclassified": updated}
+
+
+# ============================================================
+# 이미지 프록시 (Instagram CDN 핫링크 차단 우회)
+# ============================================================
+@app.get("/api/proxy/image")
+async def proxy_image(url: str = Query(...)):
+    """Instagram CDN 이미지를 서버에서 대신 가져와 브라우저에 전달한다."""
+    if not url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="https URL만 허용합니다")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        "Referer": "https://www.instagram.com/",
+        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+        content_type = resp.headers.get("content-type", "image/jpeg")
+        return Response(content=resp.content, media_type=content_type)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"이미지 로드 실패: {e}")
 
 
 if __name__ == "__main__":

@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>INFINITH — Influencer Search (Featuring Style)</title>
+<title>INFINITH — Influencer Search (DB)</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
   h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
   .subtitle { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
 
   .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
   input, select { padding: 8px 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 13px; outline: none; }
-  input:focus { border-color: #6366f1; }
+  input:focus, select:focus { border-color: #6366f1; }
   .btn { padding: 9px 20px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; }
   .btn-primary { background: #6366f1; color: white; }
   .btn-primary:hover { background: #4f46e5; }
@@ -24,6 +24,7 @@
   .badge-purple { background: #8b5cf620; color: #8b5cf6; }
   .badge-yellow { background: #eab30820; color: #eab308; }
   .badge-red { background: #ef444420; color: #ef4444; }
+  .badge-gray { background: #33415540; color: #94a3b8; }
 
   /* Tag Input */
   .tag-group { margin-bottom: 14px; }
@@ -44,83 +45,74 @@
   .suggestion:hover { border-color: #6366f1; color: #e2e8f0; }
 
   /* Checkbox */
-  .check-group { display: flex; gap: 16px; margin: 12px 0; }
+  .check-group { display: flex; gap: 16px; margin: 12px 0; flex-wrap: wrap; }
   .check-item { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
   .check-item input[type=checkbox] { accent-color: #6366f1; }
 
   /* Filter Row */
   .filter-row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-top: 12px; }
+  .filter-row > div > .label { font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
 
-  /* Influencer Grid */
-  .inf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
-  .inf-card { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; transition: all 0.2s; cursor: pointer; }
-  .inf-card:hover { border-color: #6366f1; transform: translateY(-2px); box-shadow: 0 4px 20px #6366f115; }
-  .inf-header { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
-  .inf-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #334155; flex-shrink: 0; }
-  .inf-name { font-weight: 600; font-size: 14px; }
-  .inf-handle { font-size: 12px; color: #94a3b8; }
-  .inf-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0; }
-  .inf-stat { text-align: center; background: #0f172a; border-radius: 6px; padding: 6px 4px; }
-  .inf-stat-value { font-size: 14px; font-weight: 700; }
-  .inf-stat-label { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px; }
-  .inf-bio { font-size: 11px; color: #94a3b8; line-height: 1.5; max-height: 33px; overflow: hidden; }
-  .inf-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid #0f172a; }
+  /* Detail */
+  .detail-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 16px 0; }
+  .inf-stat { text-align: center; background: #0f172a; border-radius: 6px; padding: 10px 4px; }
+  .inf-stat-value { font-size: 18px; font-weight: 700; }
+  .inf-stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 2px; }
+
   .eng-good { color: #22c55e; }
   .eng-mid { color: #eab308; }
   .eng-low { color: #ef4444; }
 
-  /* Detail Modal */
-  .modal-overlay { display: none; position: fixed; inset: 0; background: #0f172aee; z-index: 100; overflow-y: auto; }
-  .modal-overlay.active { display: block; }
-  .modal { max-width: 800px; margin: 40px auto; background: #1e293b; border-radius: 16px; padding: 28px; }
-  .modal-close { float: right; font-size: 24px; cursor: pointer; color: #64748b; }
-  .modal-close:hover { color: #e2e8f0; }
-  .detail-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 16px 0; }
-  .posts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 12px; }
-  .post-item { background: #0f172a; border-radius: 8px; padding: 10px; font-size: 11px; }
+  /* Score bar */
+  .score-bar { display: inline-block; width: 50px; height: 6px; background: #334155; border-radius: 3px; overflow: hidden; vertical-align: middle; }
+  .score-fill { height: 100%; }
+  .score-high { background: #22c55e; }
+  .score-mid { background: #eab308; }
+  .score-low { background: #94a3b8; }
 
   .loading { text-align: center; padding: 40px; color: #6366f1; }
   .loading .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #334155; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 8px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .result-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; font-size: 13px; color: #94a3b8; }
+  .source-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #22c55e20; color: #22c55e; font-size: 11px; font-weight: 600; margin-left: 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: #1e293b; border-radius: 12px; overflow: hidden; }
+  th { text-align: left; padding: 10px 8px; color: #64748b; font-size: 11px; font-weight: 600; background: #0f172a; }
+  td { padding: 10px 8px; border-bottom: 1px solid #1e293b; }
+  tr:hover td { background: #1e293b; }
 </style>
 </head>
 <body>
 
 <div class="container">
-  <h1>Influencer Search</h1>
-  <p class="subtitle">키워드 기반 인플루언서 검색 — 콘텐츠/프로필 매칭 + 필터링</p>
+  <h1>Influencer Search <span class="source-pill">DB · seeddb</span></h1>
+  <p class="subtitle">PostgreSQL 시딩 DB에서 키워드로 인플루언서 검색 — Apify 호출 없음</p>
 
   <!-- Search Card -->
   <div class="card">
     <!-- 포함 키워드 -->
     <div class="tag-group">
-      <label>포함 키워드 설정 (최대 3개)</label>
+      <label>포함 키워드 (최대 3개) <span class="desc">여러 키워드를 OR로 묶어 검색하고 결과는 핸들 기준 중복 제거</span></label>
       <div class="tag-container" id="includeContainer" onclick="this.querySelector('input')?.focus()">
         <input class="tag-input" id="includeInput" placeholder="키워드 입력 후 Enter" maxlength="30"
                onkeydown="handleTagInput(event, 'include', 3)">
       </div>
       <div class="suggestions">
         <span style="font-size:11px;color:#475569">추천:</span>
-        <span class="suggestion" onclick="addTag('include','성형후기')">성형후기</span>
-        <span class="suggestion" onclick="addTag('include','코성형')">코성형</span>
-        <span class="suggestion" onclick="addTag('include','눈성형')">눈성형</span>
-        <span class="suggestion" onclick="addTag('include','피부관리')">피부관리</span>
-        <span class="suggestion" onclick="addTag('include','뷰티')">뷰티</span>
+        <span class="suggestion" onclick="addTag('include','피부과')">피부과</span>
+        <span class="suggestion" onclick="addTag('include','레이저')">레이저</span>
+        <span class="suggestion" onclick="addTag('include','보톡스')">보톡스</span>
+        <span class="suggestion" onclick="addTag('include','필러')">필러</span>
         <span class="suggestion" onclick="addTag('include','리프팅')">리프팅</span>
-        <span class="suggestion" onclick="addTag('include','강남성형외과')">강남성형외과</span>
+        <span class="suggestion" onclick="addTag('include','성형')">성형</span>
+        <span class="suggestion" onclick="addTag('include','다이어트')">다이어트</span>
+        <span class="suggestion" onclick="addTag('include','뷰티')">뷰티</span>
       </div>
-    </div>
-
-    <!-- 검색 영역 선택 -->
-    <div class="check-group">
-      <label class="check-item"><input type="checkbox" id="searchContent" checked> 콘텐츠에서 검색 <span style="font-size:10px;color:#475569">(게시물 캡션)</span></label>
-      <label class="check-item"><input type="checkbox" id="searchProfile" checked> 프로필에서 검색 <span style="font-size:10px;color:#475569">(바이오)</span></label>
     </div>
 
     <!-- 제외 키워드 -->
     <div class="tag-group">
-      <label>제외 키워드 (최대 3개) <span class="desc">게시물/바이오에 포함된 인플루언서 제외</span></label>
+      <label>제외 키워드 (최대 3개) <span class="desc">바이오/캡션에 포함되면 결과에서 제외 (클라이언트 사이드 필터)</span></label>
       <div class="tag-container" id="excludeContainer" onclick="this.querySelector('input')?.focus()">
         <input class="tag-input" id="excludeInput" placeholder="예: 광고대행, 부계정, 팬계정" maxlength="30"
                onkeydown="handleTagInput(event, 'exclude', 3)">
@@ -129,19 +121,53 @@
 
     <!-- 계정명 제외 -->
     <div class="tag-group">
-      <label>계정명에서 제외 (최대 5개) <span class="desc">계정명/이름에 키워드 포함 인플루언서 제외</span></label>
+      <label>계정명에서 제외 (최대 5개) <span class="desc">handle/full_name에 포함된 계정 제외</span></label>
       <div class="tag-container" id="excludeAccountContainer" onclick="this.querySelector('input')?.focus()">
         <input class="tag-input" id="excludeAccountInput" placeholder="예: official, .com, _ad" maxlength="30"
                onkeydown="handleTagInput(event, 'excludeAccount', 5)">
       </div>
     </div>
 
-    <!-- 팔로워 필터 + 검색 버튼 -->
+    <!-- DB 전용 필터 -->
+    <div class="check-group">
+      <label class="check-item"><input type="checkbox" id="hasContact"> 연락처 있는 계정만</label>
+      <label class="check-item"><input type="checkbox" id="recentlyActive"> 최근 30일 활동 계정만</label>
+    </div>
+
+    <!-- 필터 + 검색 -->
     <div class="filter-row">
       <div>
-        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">최소 팔로워</div>
+        <div class="label">도메인</div>
+        <select id="domain">
+          <option value="">전체</option>
+          <option value="skin_clinic">피부과</option>
+          <option value="plastic_surgery">성형외과</option>
+          <option value="obesity_clinic">비만클리닉</option>
+        </select>
+      </div>
+      <div>
+        <div class="label">티어</div>
+        <select id="tier">
+          <option value="">전체</option>
+          <option value="nano">nano (1k~1만)</option>
+          <option value="micro">micro (1만~10만)</option>
+          <option value="mid">mid (10만~50만)</option>
+          <option value="macro">macro (50만+)</option>
+        </select>
+      </div>
+      <div>
+        <div class="label">협찬 의향</div>
+        <select id="intent">
+          <option value="">전체</option>
+          <option value="explicit_dm">explicit_dm</option>
+          <option value="explicit_email">explicit_email</option>
+          <option value="has_experience">has_experience</option>
+        </select>
+      </div>
+      <div>
+        <div class="label">최소 팔로워</div>
         <select id="minFollowers">
-          <option value="500">500+</option>
+          <option value="0">제한 없음</option>
           <option value="1000" selected>1,000+</option>
           <option value="5000">5,000+</option>
           <option value="10000">10,000+</option>
@@ -149,7 +175,7 @@
         </select>
       </div>
       <div>
-        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">최대 팔로워</div>
+        <div class="label">최대 팔로워</div>
         <select id="maxFollowers">
           <option value="0" selected>제한 없음</option>
           <option value="10000">~10,000</option>
@@ -159,16 +185,14 @@
         </select>
       </div>
       <div>
-        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">수집 게시물 수</div>
+        <div class="label">키워드별 결과 수</div>
         <select id="resultsLimit">
-          <option value="20">20개 (빠름)</option>
-          <option value="30" selected>30개</option>
-          <option value="50">50개 (느림)</option>
+          <option value="20">20</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
         </select>
       </div>
-      <button class="btn btn-primary" id="btnSearch" onclick="doSearch()" style="margin-left:auto">
-        검색
-      </button>
+      <button class="btn btn-primary" id="btnSearch" onclick="doSearch()" style="margin-left:auto">검색</button>
     </div>
   </div>
 
@@ -187,14 +211,14 @@
   </div>
 
   <div style="font-size:11px;color:#475569;margin-top:16px">
-    API: <input type="text" id="apiBase" value="http://localhost:8000" style="width:200px;font-size:11px;padding:3px 6px">
+    Pipeline API: <input type="text" id="apiBase" value="http://localhost:8000" style="width:200px;font-size:11px;padding:3px 6px">
+    <span style="margin-left:12px;color:#64748b">엔드포인트: GET /api/influencers/search</span>
   </div>
 </div>
 
 <script>
-const API = () => document.getElementById('apiBase').value.trim();
+const API = () => document.getElementById('apiBase').value.trim().replace(/\/$/, '');
 const tags = { include: [], exclude: [], excludeAccount: [] };
-let lastSearchResult = null; // 검색 결과 캐시
 
 function backToList() {
   document.getElementById('profileSection').style.display = 'none';
@@ -229,21 +253,14 @@ function renderTags(type) {
   const input = container.querySelector('input');
   const cls = type === 'include' ? 'tag-include' : 'tag-exclude';
 
-  // 기존 태그 제거
   container.querySelectorAll('.tag').forEach(t => t.remove());
 
-  // 태그 렌더링
   tags[type].forEach((t, i) => {
     const el = document.createElement('span');
     el.className = `tag ${cls}`;
     el.innerHTML = `${t} <span class="remove" onclick="removeTag('${type}',${i})">×</span>`;
     container.insertBefore(el, input);
   });
-}
-
-function proxyImg(url) {
-  if (!url) return '';
-  return `${API()}/api/influencers/proxy/image?url=${encodeURIComponent(url)}`;
 }
 
 function formatNum(n) {
@@ -257,44 +274,173 @@ function engClass(rate) {
   return rate >= 3 ? 'eng-good' : (rate >= 1 ? 'eng-mid' : 'eng-low');
 }
 
-function renderTable(data) {
-  if (!data.length) return '<div style="text-align:center;padding:40px;color:#64748b">검색 결과가 없습니다.</div>';
-  let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
-    <thead><tr style="border-bottom:1px solid #334155">
-      <th style="text-align:left;padding:10px 8px;color:#64748b;font-size:11px;font-weight:600">계정</th>
-      <th style="text-align:left;padding:10px 8px;color:#64748b;font-size:11px">카테고리</th>
-      <th style="text-align:right;padding:10px 8px;color:#64748b;font-size:11px">최근 업로드</th>
-      <th style="text-align:right;padding:10px 8px;color:#64748b;font-size:11px">팔로워 수</th>
-      <th style="text-align:right;padding:10px 8px;color:#64748b;font-size:11px">예상 유효 팔로워</th>
-      <th style="text-align:right;padding:10px 8px;color:#64748b;font-size:11px">ER</th>
-      <th style="text-align:right;padding:10px 8px;color:#64748b;font-size:11px">예상 평균 도달</th>
+function scoreClass(s) {
+  if (s == null) return 'score-low';
+  if (s >= 0.5) return 'score-high';
+  if (s >= 0.35) return 'score-mid';
+  return 'score-low';
+}
+
+function scoreBar(s) {
+  const v = s == null ? 0 : Math.min(1, Math.max(0, s));
+  const pct = (v * 100).toFixed(0);
+  return `<span class="score-bar"><span class="score-fill ${scoreClass(s)}" style="width:${pct}%"></span></span>
+          <span style="margin-left:6px;font-size:11px;color:#94a3b8">${(s != null ? s.toFixed(2) : '-')}</span>`;
+}
+
+/**
+ * pipeline API 응답 1건을 화면에서 쓸 형태로 매핑한다.
+ */
+function parseJsonField(val) {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try { return JSON.parse(val); } catch { return []; }
+  }
+  return [];
+}
+
+function proxyImg(url) {
+  if (!url) return '';
+  return `${API()}/api/proxy/image?url=${encodeURIComponent(url)}`;
+}
+
+function mapApiItem(item) {
+  // ER: API는 0~1 소수점, 화면은 % 형태
+  const rawEr = item.recent_engagement_rate ?? item.engagement_rate ?? 0;
+  const erPct = rawEr * 100;
+
+  // 추정 유효 팔로워 (ER 기반 간단 추정)
+  let realRatio = 0.3;
+  if (erPct > 0.5) realRatio = Math.min(1.0, erPct / 3.0 * 0.8 + 0.2);
+  const estimatedReal = Math.round((item.followers || 0) * realRatio);
+  const estimatedReach = Math.round((item.avg_likes || 0) * 8) || Math.round((item.followers || 0) * 0.15);
+
+  // 도메인 최고 점수
+  const skin = item.match_score_skin_clinic;
+  const plastic = item.match_score_plastic_surgery;
+  const obesity = item.match_score_obesity_clinic;
+  const bestScore = Math.max(skin || 0, plastic || 0, obesity || 0);
+
+  return {
+    ...item,
+    treatment_tags: parseJsonField(item.treatment_tags),
+    region_tags: parseJsonField(item.region_tags),
+    engagement_rate_pct: erPct,
+    estimated_real_followers: estimatedReal,
+    estimated_reach: estimatedReach,
+    best_score: bestScore,
+  };
+}
+
+/**
+ * 클라이언트 사이드 필터:
+ *  - 제외 키워드: bio / sample_captions에 포함 → 제외
+ *  - 계정명 제외: handle / full_name에 포함 → 제외
+ */
+function clientFilter(item) {
+  const handle = (item.handle || '').toLowerCase();
+  const fullName = (item.full_name || '').toLowerCase();
+  const bio = (item.bio || '').toLowerCase();
+  const captions = (item.sample_captions || []).join(' ').toLowerCase();
+
+  for (const ex of tags.exclude) {
+    const k = ex.toLowerCase();
+    if (bio.includes(k) || captions.includes(k)) return false;
+  }
+  for (const ex of tags.excludeAccount) {
+    const k = ex.toLowerCase();
+    if (handle.includes(k) || fullName.includes(k)) return false;
+  }
+  return true;
+}
+
+function renderTable(rows) {
+  if (!rows.length) return '<div style="text-align:center;padding:40px;color:#64748b">검색 결과가 없습니다.</div>';
+  let html = `<table>
+    <thead><tr>
+      <th>계정</th>
+      <th>티어</th>
+      <th style="text-align:right">팔로워</th>
+      <th style="text-align:right">ER</th>
+      <th>도메인 매칭</th>
+      <th>시술 태그</th>
+      <th>지역</th>
+      <th>시그널</th>
+      <th style="text-align:right">최근 업로드</th>
     </tr></thead><tbody>`;
 
-  data.forEach(inf => {
-    const er = inf.engagement_rate || 0;
+  rows.forEach(inf => {
     const handle = (inf.handle || '').replace('@','');
-    const cats = (inf.categories || []).map(c => `<span class="badge badge-purple" style="margin-right:2px">${c}</span>`).join('');
-    html += `<tr style="border-bottom:1px solid #1e293b;cursor:pointer" onclick="showProfile('${handle}')" onmouseenter="this.style.background='#1e293b'" onmouseleave="this.style.background='transparent'">
-      <td style="padding:10px 8px">
+    const tier = inf.follower_tier ? `<span class="badge badge-blue">${inf.follower_tier}</span>` : '-';
+    const treatments = (inf.treatment_tags || []).slice(0, 3).map(t => `<span class="badge badge-purple">${t}</span>`).join(' ');
+    const regions = (inf.region_tags || []).slice(0, 3).map(r => `<span class="badge badge-yellow">${r}</span>`).join(' ');
+
+    const signals = [];
+    if (inf.has_contact_info) signals.push('<span class="badge badge-green">연락처</span>');
+    if (inf.sponsorship_intent_signal && inf.sponsorship_intent_signal !== 'none')
+      signals.push(`<span class="badge badge-blue">${inf.sponsorship_intent_signal}</span>`);
+    if (inf.is_recently_active) signals.push('<span class="badge badge-green">활동중</span>');
+
+    const skin = inf.match_score_skin_clinic;
+    const plastic = inf.match_score_plastic_surgery;
+    const obesity = inf.match_score_obesity_clinic;
+    const bestLabel = (() => {
+      const arr = [['피부', skin], ['성형', plastic], ['비만', obesity]];
+      arr.sort((a, b) => (b[1] ?? -1) - (a[1] ?? -1));
+      return arr[0][1] != null ? `${arr[0][0]} ${scoreBar(arr[0][1])}` : '-';
+    })();
+
+    html += `<tr style="cursor:pointer" onclick="showProfile('${handle}')">
+      <td>
         <div style="display:flex;align-items:center;gap:10px">
-          ${inf.profile_pic_url ? `<img src="${proxyImg(inf.profile_pic_url)}" style="width:36px;height:36px;border-radius:50%;flex-shrink:0">` : '<div style="width:36px;height:36px;border-radius:50%;background:#334155;flex-shrink:0"></div>'}
+          ${inf.profile_pic_url
+            ? `<img src="${proxyImg(inf.profile_pic_url)}" style="width:36px;height:36px;border-radius:50%;flex-shrink:0;background:#334155" onerror="this.style.visibility='hidden'">`
+            : '<div style="width:36px;height:36px;border-radius:50%;background:#334155;flex-shrink:0"></div>'}
           <div>
-            <div style="font-weight:600;font-size:13px">${handle}</div>
-            <div style="font-size:11px;color:#64748b">${inf.full_name || ''}</div>
+            <div style="font-weight:600;font-size:13px">@${handle}</div>
+            <div style="font-size:11px;color:#64748b;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inf.full_name || ''}</div>
           </div>
         </div>
       </td>
-      <td style="padding:10px 8px">${cats}</td>
-      <td style="padding:10px 8px;text-align:right;color:#94a3b8;font-size:12px">${inf.last_upload || '—'}</td>
-      <td style="padding:10px 8px;text-align:right;font-weight:600">${formatNum(inf.followers)}</td>
-      <td style="padding:10px 8px;text-align:right;color:#94a3b8">${formatNum(inf.estimated_real_followers || 0)}</td>
-      <td style="padding:10px 8px;text-align:right"><span class="${engClass(er)}" style="font-weight:600">${er.toFixed(2)}%</span></td>
-      <td style="padding:10px 8px;text-align:right;color:#94a3b8">${formatNum(inf.estimated_reach || 0)}</td>
+      <td>${tier}</td>
+      <td style="text-align:right;font-weight:600">${formatNum(inf.followers)}</td>
+      <td style="text-align:right"><span class="${engClass(inf.engagement_rate_pct)}" style="font-weight:600">${inf.engagement_rate_pct.toFixed(2)}%</span></td>
+      <td>${bestLabel}</td>
+      <td>${treatments || '<span style="color:#475569;font-size:11px">-</span>'}</td>
+      <td>${regions || '<span style="color:#475569;font-size:11px">-</span>'}</td>
+      <td>${signals.join(' ') || '<span style="color:#475569;font-size:11px">-</span>'}</td>
+      <td style="text-align:right;color:#94a3b8;font-size:12px">${inf.last_upload || '-'}</td>
     </tr>`;
   });
 
   html += '</tbody></table>';
   return html;
+}
+
+async function searchOne(keyword, base) {
+  const params = new URLSearchParams({
+    keyword,
+    min_followers: document.getElementById('minFollowers').value,
+    limit: document.getElementById('resultsLimit').value,
+  });
+  const max = document.getElementById('maxFollowers').value;
+  if (max && max !== '0') params.set('max_followers', max);
+
+  const domain = document.getElementById('domain').value;
+  if (domain) params.set('domain', domain);
+
+  const tier = document.getElementById('tier').value;
+  if (tier) params.set('tier', tier);
+
+  const intent = document.getElementById('intent').value;
+  if (intent) params.set('intent', intent);
+
+  if (document.getElementById('hasContact').checked) params.set('has_contact', 'true');
+  if (document.getElementById('recentlyActive').checked) params.set('recently_active', 'true');
+
+  const resp = await fetch(`${base}/api/influencers/search?${params}`);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return await resp.json();
 }
 
 async function doSearch() {
@@ -304,37 +450,62 @@ async function doSearch() {
   btn.disabled = true; btn.textContent = '검색 중...';
   document.getElementById('resultSection').style.display = 'block';
   document.getElementById('profileSection').style.display = 'none';
-  document.getElementById('resultGrid').innerHTML = `<div class="loading" style="grid-column:1/-1"><div class="spinner"></div><div>키워드 기반 인플루언서 검색 중...</div><div style="font-size:11px;color:#475569;margin-top:4px">해시태그 게시물 수집 → 작성자 추출 → 프로필 분석 → 필터링 (약 60~120초)</div></div>`;
+  document.getElementById('resultGrid').innerHTML =
+    `<div class="loading"><div class="spinner"></div><div>DB 조회 중... (키워드 ${tags.include.length}개 순차 호출)</div></div>`;
+
+  const base = API();
+  const merged = new Map(); // handle → item
+  const errors = [];
 
   try {
-    const resp = await fetch(`${API()}/api/influencers/search`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        keywords: tags.include,
-        exclude_keywords: tags.exclude,
-        exclude_accounts: tags.excludeAccount,
-        search_in_content: document.getElementById('searchContent').checked,
-        search_in_profile: document.getElementById('searchProfile').checked,
-        min_followers: parseInt(document.getElementById('minFollowers').value),
-        max_followers: parseInt(document.getElementById('maxFollowers').value),
-        results_limit: parseInt(document.getElementById('resultsLimit').value),
-      }),
-    });
-    const data = await resp.json();
-    if (data.success) {
-      document.getElementById('resultBar').innerHTML = `
-        <span>키워드 <strong style="color:#e2e8f0">${data.keywords.map(k=>'#'+k).join(' ')}</strong> · <strong style="color:#e2e8f0">${data.count}명</strong> 발견</span>
-        <span style="font-size:11px">팔로워 ${formatNum(data.filters.min_followers)}${data.filters.max_followers ? '~'+formatNum(data.filters.max_followers) : '+'}</span>
-      `;
-      document.getElementById('resultGrid').innerHTML = renderTable(data.data);
-    } else {
-      document.getElementById('resultGrid').innerHTML = `<div style="grid-column:1/-1;color:#ef4444;padding:20px">${data.message}</div>`;
+    for (const kw of tags.include) {
+      try {
+        const data = await searchOne(kw, base);
+        for (const raw of (data.items || [])) {
+          if (!raw.handle) continue;
+          if (merged.has(raw.handle)) {
+            // matched_post_count 더 많은 쪽 유지 + 매치 키워드 누적
+            const prev = merged.get(raw.handle);
+            if ((raw.matched_post_count || 0) > (prev.matched_post_count || 0)) {
+              merged.set(raw.handle, mapApiItem(raw));
+            }
+            prev._matched_keywords = [...new Set([...(prev._matched_keywords || []), kw])];
+          } else {
+            const mapped = mapApiItem(raw);
+            mapped._matched_keywords = [kw];
+            merged.set(raw.handle, mapped);
+          }
+        }
+      } catch (e) {
+        errors.push(`${kw}: ${e.message}`);
+      }
     }
-  } catch(e) {
-    document.getElementById('resultGrid').innerHTML = `<div style="grid-column:1/-1;color:#ef4444;padding:20px">연결 실패: ${e.message}<br><span style="font-size:11px">uvicorn app.main:app --port 8000</span></div>`;
+
+    let rows = [...merged.values()].filter(clientFilter);
+
+    // 정렬: matched_post_count → best_score → followers
+    rows.sort((a, b) => {
+      const m = (b.matched_post_count || 0) - (a.matched_post_count || 0);
+      if (m !== 0) return m;
+      const s = (b.best_score || 0) - (a.best_score || 0);
+      if (s !== 0) return s;
+      return (b.followers || 0) - (a.followers || 0);
+    });
+
+    document.getElementById('resultBar').innerHTML = `
+      <span>키워드 <strong style="color:#e2e8f0">${tags.include.map(k=>'#'+k).join(' ')}</strong>
+            · <strong style="color:#e2e8f0">${rows.length}명</strong> 매칭
+            ${errors.length ? `<span style="color:#ef4444">· ${errors.length}건 오류</span>` : ''}</span>
+      <span style="font-size:11px">DB 조회 (Apify 호출 없음)</span>
+    `;
+    document.getElementById('resultGrid').innerHTML = renderTable(rows);
+  } catch (e) {
+    document.getElementById('resultGrid').innerHTML =
+      `<div style="color:#ef4444;padding:20px">연결 실패: ${e.message}<br>
+       <span style="font-size:11px">파이프라인 API가 ${base}에서 떠있는지 확인하세요</span></div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '검색';
   }
-  btn.disabled = false; btn.textContent = '검색';
 }
 
 async function showProfile(handle) {
@@ -342,79 +513,104 @@ async function showProfile(handle) {
   document.getElementById('profileSection').style.display = 'block';
   window.scrollTo(0, 0);
   const el = document.getElementById('profileContent');
-  el.innerHTML = `<div class="loading"><div class="spinner"></div><div>@${handle} 상세 분석 중... (게시물+릴스 수집)</div></div>`;
+  el.innerHTML = `<div class="loading"><div class="spinner"></div><div>@${handle} 상세 조회 중...</div></div>`;
 
   try {
-    const resp = await fetch(`${API()}/api/influencers/profile`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({handle}),
-    });
-    const data = await resp.json();
-    if (data.success) {
-      el.innerHTML = renderProfile(data.data);
-    } else {
-      el.innerHTML = `<div class="card"><p style="color:#ef4444">${data.message}</p></div>`;
+    const resp = await fetch(`${API()}/api/influencers/${handle}`);
+    if (resp.status === 404) {
+      el.innerHTML = `<div class="card"><p style="color:#ef4444">@${handle} 을(를) DB에서 찾을 수 없습니다.</p></div>`;
+      return;
     }
-  } catch(e) {
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    el.innerHTML = renderProfile(data);
+  } catch (e) {
     el.innerHTML = `<div class="card"><p style="color:#ef4444">${e.message}</p></div>`;
   }
 }
 
 function renderProfile(d) {
-  const er = d.engagement_rate || 0;
+  const erPct = (d.recent_engagement_rate ?? d.engagement_rate ?? 0) * 100;
+  const treatmentTags = parseJsonField(d.treatment_tags).map(t => `<span class="badge badge-purple">${t}</span>`).join(' ');
+  const regionTags = parseJsonField(d.region_tags).map(t => `<span class="badge badge-yellow">${t}</span>`).join(' ');
+
+  const contacts = [];
+  if (d.contact_email) contacts.push(`<span class="badge badge-green">📧 ${d.contact_email}</span>`);
+  if (d.contact_kakao) contacts.push(`<span class="badge badge-green">💬 카톡 ${d.contact_kakao}</span>`);
+  if (d.contact_phone) contacts.push(`<span class="badge badge-green">📞 ${d.contact_phone}</span>`);
+  if (d.contact_linktree) contacts.push(`<span class="badge badge-green">🔗 linktr.ee/${d.contact_linktree}</span>`);
+
+  const intent = d.sponsorship_intent_signal && d.sponsorship_intent_signal !== 'none'
+    ? `<span class="badge badge-blue">협찬 의향: ${d.sponsorship_intent_signal}</span>`
+    : '';
+
   let html = `<div class="card">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px">
-      ${d.profile_pic_url ? `<img src="${proxyImg(d.profile_pic_url)}" style="width:72px;height:72px;border-radius:50%">` : ''}
-      <div>
-        <h2 style="font-size:20px">${d.full_name || d.handle} ${d.is_verified ? '<span class="badge badge-blue">Verified</span>' : ''} ${d.is_business ? '<span class="badge badge-green">Business</span>' : ''}</h2>
-        <div style="color:#94a3b8;font-size:14px">@${d.handle}</div>
-        ${(d.categories||[]).length ? d.categories.map(c=>`<span class="badge badge-purple" style="margin-top:4px">${c}</span>`).join(' ') : (d.category ? `<span class="badge badge-purple" style="margin-top:4px">${d.category}</span>` : '')}
+      ${d.profile_pic_url
+        ? `<img src="${proxyImg(d.profile_pic_url)}" style="width:80px;height:80px;border-radius:50%;background:#334155" onerror="this.style.visibility='hidden'">`
+        : '<div style="width:80px;height:80px;border-radius:50%;background:#334155"></div>'}
+      <div style="flex:1">
+        <h2 style="font-size:20px;margin-bottom:4px">${d.full_name || d.handle}</h2>
+        <div style="color:#94a3b8;font-size:14px;margin-bottom:6px">@${d.handle}
+          ${d.profile_url ? `<a href="${d.profile_url}" target="_blank" style="color:#6366f1;font-size:11px;margin-left:6px">↗ instagram</a>` : ''}
+        </div>
+        <div>
+          ${d.follower_tier ? `<span class="badge badge-blue">${d.follower_tier}</span>` : ''}
+          ${d.is_recently_active ? '<span class="badge badge-green">최근 활동</span>' : '<span class="badge badge-gray">비활성</span>'}
+          ${d.status === 'stale' ? '<span class="badge badge-yellow">stale</span>' : ''}
+          ${intent}
+        </div>
       </div>
     </div>
-    ${d.bio ? `<p style="font-size:13px;color:#94a3b8;line-height:1.7;margin-bottom:16px">${d.bio}</p>` : ''}
-    ${d.external_url ? `<a href="${d.external_url}" target="_blank" style="color:#6366f1;font-size:12px">${d.external_url}</a>` : ''}
+    ${d.bio ? `<p style="font-size:13px;color:#94a3b8;line-height:1.7;margin-bottom:12px;white-space:pre-wrap">${d.bio}</p>` : ''}
+    ${contacts.length ? `<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px">${contacts.join('')}</div>` : ''}
+
     <div class="detail-stats">
       <div class="inf-stat"><div class="inf-stat-value">${formatNum(d.followers)}</div><div class="inf-stat-label">팔로워</div></div>
       <div class="inf-stat"><div class="inf-stat-value">${formatNum(d.following)}</div><div class="inf-stat-label">팔로잉</div></div>
-      <div class="inf-stat"><div class="inf-stat-value">${formatNum(d.posts || 0)}</div><div class="inf-stat-label">게시물</div></div>
-      <div class="inf-stat"><div class="inf-stat-value ${engClass(er)}">${er.toFixed(2)}%</div><div class="inf-stat-label">인게이지먼트</div></div>
-      <div class="inf-stat"><div class="inf-stat-value">${formatNum(d.avg_reel_plays || 0)}</div><div class="inf-stat-label">릴스 평균 재생</div></div>
+      <div class="inf-stat"><div class="inf-stat-value">${formatNum(d.posts_count || 0)}</div><div class="inf-stat-label">게시물</div></div>
+      <div class="inf-stat"><div class="inf-stat-value ${engClass(erPct)}">${erPct.toFixed(2)}%</div><div class="inf-stat-label">최근 ER</div></div>
+      <div class="inf-stat"><div class="inf-stat-value">${formatNum(d.posts_last_30d || 0)}</div><div class="inf-stat-label">최근 30일 게시물</div></div>
     </div>
     <div style="display:flex;gap:20px;margin-top:8px;font-size:13px;color:#94a3b8">
       <span>평균 좋아요 <strong style="color:#ef4444">${formatNum(d.avg_likes||0)}</strong></span>
       <span>평균 댓글 <strong style="color:#6366f1">${formatNum(d.avg_comments||0)}</strong></span>
+      <span>평균 릴스 재생 <strong style="color:#8b5cf6">${formatNum(d.avg_reel_plays||0)}</strong></span>
+      ${d.content_consistency_score != null ? `<span>콘텐츠 일관성 <strong style="color:#22c55e">${(d.content_consistency_score).toFixed(2)}</strong></span>` : ''}
     </div>
   </div>`;
 
-  if (d.recent_posts?.length) {
-    html += `<div class="card"><h3 style="font-size:14px;margin-bottom:12px">최근 게시물 (${d.recent_posts.length}개)</h3><div class="posts-grid">`;
-    d.recent_posts.forEach(p => {
-      html += `<div class="post-item">
-        <div style="margin-bottom:6px;color:#94a3b8;max-height:44px;overflow:hidden;line-height:1.5">${p.caption || '(캡션 없음)'}</div>
-        <div style="display:flex;gap:10px;font-size:11px">
-          <span style="color:#ef4444">${formatNum(p.likes||0)} ♥</span>
-          <span style="color:#6366f1">${formatNum(p.comments||0)} 💬</span>
-          ${p.video_views ? `<span style="color:#8b5cf6">${formatNum(p.video_views)} ▶</span>` : ''}
-        </div>
-      </div>`;
-    });
-    html += `</div></div>`;
-  }
+  // 매칭 점수
+  html += `<div class="card">
+    <h3 style="font-size:14px;margin-bottom:12px">도메인 매칭 점수</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div style="background:#0f172a;padding:12px;border-radius:8px">
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">피부과</div>
+        <div style="font-size:20px;font-weight:700">${d.match_score_skin_clinic != null ? d.match_score_skin_clinic.toFixed(3) : '-'}</div>
+      </div>
+      <div style="background:#0f172a;padding:12px;border-radius:8px">
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">성형외과</div>
+        <div style="font-size:20px;font-weight:700">${d.match_score_plastic_surgery != null ? d.match_score_plastic_surgery.toFixed(3) : '-'}</div>
+      </div>
+      <div style="background:#0f172a;padding:12px;border-radius:8px">
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">비만클리닉</div>
+        <div style="font-size:20px;font-weight:700">${d.match_score_obesity_clinic != null ? d.match_score_obesity_clinic.toFixed(3) : '-'}</div>
+      </div>
+    </div>
+    ${d.match_score_breakdown ? `<details style="margin-top:12px">
+        <summary style="cursor:pointer;color:#94a3b8;font-size:12px">점수 세부 분해 (breakdown)</summary>
+        <pre style="background:#0f172a;padding:12px;border-radius:8px;margin-top:8px;font-size:11px;color:#94a3b8;overflow-x:auto">${
+          JSON.stringify(d.match_score_breakdown, null, 2)
+        }</pre>
+      </details>` : ''}
+  </div>`;
 
-  if (d.recent_reels?.length) {
-    html += `<div class="card"><h3 style="font-size:14px;margin-bottom:12px">최근 릴스 (${d.recent_reels.length}개)</h3><div class="posts-grid">`;
-    d.recent_reels.forEach(r => {
-      html += `<div class="post-item">
-        <div style="margin-bottom:6px;color:#94a3b8;max-height:44px;overflow:hidden;line-height:1.5">${r.caption || '(캡션 없음)'}</div>
-        <div style="display:flex;gap:10px;font-size:11px">
-          <span style="color:#8b5cf6">${formatNum(r.plays||0)} ▶</span>
-          <span style="color:#ef4444">${formatNum(r.likes||0)} ♥</span>
-          ${r.duration ? `<span style="color:#94a3b8">${r.duration}s</span>` : ''}
-        </div>
-      </div>`;
-    });
-    html += `</div></div>`;
+  // 태그
+  if (treatmentTags || regionTags) {
+    html += `<div class="card">
+      ${treatmentTags ? `<div style="margin-bottom:10px"><div style="font-size:12px;color:#94a3b8;margin-bottom:6px">시술 태그</div>${treatmentTags}</div>` : ''}
+      ${regionTags ? `<div><div style="font-size:12px;color:#94a3b8;margin-bottom:6px">지역 태그</div>${regionTags}</div>` : ''}
+    </div>`;
   }
 
   return html;
