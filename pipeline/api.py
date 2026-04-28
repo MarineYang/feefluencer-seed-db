@@ -17,6 +17,9 @@ setup_logging()
 
 import database as db
 from config import settings
+from jobs.discovery import run_discovery
+from jobs.enrichment import run_enrichment
+from jobs.refresh import run_refresh
 
 
 @asynccontextmanager
@@ -673,6 +676,19 @@ async def proxy_image(url: str = Query(...)):
         return Response(content=resp.content, media_type=content_type)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"이미지 로드 실패: {e}")
+
+
+# ============================================================
+# 무료 리프레시 (Instaloader + Webshare 프록시)
+# ============================================================
+@app.post("/api/jobs/refresh-free/{tier}")
+async def trigger_refresh_free(tier: str, limit: int = Query(default=50, ge=1, le=200)):
+    """Instaloader + Webshare 프록시로 무료 프로필 리프레시를 실행한다."""
+    if tier not in ("hot", "warm", "cold"):
+        raise HTTPException(status_code=400, detail="tier must be hot | warm | cold")
+    from jobs.refresh_free import run_refresh_free
+    result = await run_refresh_free(tier=tier, limit=limit)
+    return result
 
 
 if __name__ == "__main__":

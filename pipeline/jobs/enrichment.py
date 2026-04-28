@@ -4,7 +4,9 @@ Enrichment Job
 큐에서 posts_refresh / deep_enrich 작업을 처리한다.
 게시물 수집 → treatment_tags / region_tags / match_score 계산 → DB 갱신
 """
+import asyncio
 import json
+import random
 import uuid
 from datetime import datetime, timezone
 
@@ -13,6 +15,7 @@ from loguru import logger
 import database as db
 from apify_client import ApifyClient, parse_datetime, parse_post
 from config import settings
+import instagram_post_client as ig_client
 from keywords import (
     calculate_content_consistency,
     calculate_match_score,
@@ -58,9 +61,10 @@ async def run_enrichment(batch_size: int | None = None) -> dict:
         total += 1
 
         try:
-            # 게시물 수집
-            posts_raw = await client.scrape_posts(handle)
-            apify_calls += 1
+            # 게시물 수집 (Instagram 모바일 API — 무료)
+            posts_raw = await ig_client.scrape_posts(handle, limit=50)
+            # posts_raw = await client.scrape_posts(handle)  # Apify (유료)
+            # apify_calls += 1
 
             if not posts_raw:
                 await _mark_job(job_id, "done")
@@ -112,6 +116,9 @@ async def run_enrichment(batch_size: int | None = None) -> dict:
             await _mark_job(job_id, "done")
             success += 1
             logger.info(f"Enrichment 완료: @{handle} (게시물 {len(posts_raw)}개)")
+
+            # Instagram rate limit 방지 — 계정 간 딜레이
+            await asyncio.sleep(random.uniform(5, 10))
 
         except Exception as e:
             error_msg = str(e)

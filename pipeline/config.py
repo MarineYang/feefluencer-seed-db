@@ -83,5 +83,10 @@ class Settings(BaseSettings):
         default="http://localhost:5173", validation_alias="CORS_ORIGINS"
     )
 
+    # ── Instagram 세션 ─────────────────────────
+    instagram_session_id: str = Field(
+        default="", validation_alias="INSTAGRAM_SESSION_ID"
+    )
+
 
 settings = Settings()
